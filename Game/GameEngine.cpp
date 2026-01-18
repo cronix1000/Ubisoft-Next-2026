@@ -86,14 +86,20 @@ void Init()
 	gCoordinator.AddComponent(scoreLabel, UILabel{ 10, 6, "Score: 0", 1, 1, 1  });
 
 	// 20.0f is the "Zoom Level". Smaller number = Zoom In. Larger = Zoom Out.
-	float zoom = 20.0f;
+	float zoom = 15.0f;
 	float aspectRatio = (float)APP_VIRTUAL_WIDTH / (float)APP_VIRTUAL_HEIGHT;
 
-	// Create the matrix
+	vFocusPoint = { 0, 0, 0 };
+	vCamera = { -10.0f, 10.0f, -10.0f };
+	// RTS usually uses Orthographic for consistent unit sizes
 	matProj = Engine3D::Matrix_MakeOrthographic(zoom * aspectRatio, zoom, -100.0f, 1000.0f);
 
-	fYaw = 0.785f;   // 45 degrees in radians
-	fTheta = 0.615f; // ~35 degrees down (Standard Iso Angle)
+	// Standard Isometric Angles
+	fYaw = 0.785398f;   // 45 degrees
+	fTheta = 0.615472f; // ~35.26 degrees (asin(tan(30)))
+
+	// Set initial focus point
+	vFocusPoint = { 0, 0, 0 };
 }
 
 //------------------------------------------------------------------------
@@ -101,35 +107,42 @@ void Init()
 //------------------------------------------------------------------------
 void Update(const float deltaTime)
 {
-	float speed = 10.0f * deltaTime / 1000.0f;
-	// ... (keep your input controls here) ...
+	// RTS Camera Movement Speed
+	float speed = 20.0f * deltaTime / 1000.0f;
 
-	// FIX: Set Y to POSITIVE 10.0f.
-	// In a Y-Up world, this places the camera in the sky, looking down.
-	vec3d vOffset = { -10.0f, 10.0f, -10.0f };
-	vec3d vUp = { 0,1,0 };
-	vec3d vTarget = { 0,0,1 };
+	if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
+	if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
 
-	// ... (rest of the function remains the same) ...
-	mat4x4 matCameraRot = Matrix_MakeRotationY(fYaw);
-	vTarget = Vector_Add(vCamera, vLookDir);
+	if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
+	if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
+
+	// Calculate fixed Isometric Offset
+	float distance = 20.0f;
+
+	// We construct the camera position by rotating a vector {0,0,-dist} 
+	// by our fixed Pitch (Theta) and Yaw.
+	mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
+	mat4x4 matYaw = Matrix_MakeRotationY(fYaw);
+	mat4x4 matRot = Matrix_MultiplyMatrix(matPitch, matYaw);
+
+	vec3d vOffset = { 0.0f, 0.0f, -distance };
+	vOffset = Matrix_MultiplyVector(matRot, vOffset);
+
+	// Set Camera
 	vCamera = Vector_Add(vFocusPoint, vOffset);
-	fTheta += 1.0f * deltaTime / 1000.0f;
+
+	// Removed: fTheta += ... (Stop the spinning!)
 }
 //------------------------------------------------------------------------
 // Display calls here 
 //------------------------------------------------------------------------
 void Render()
 {
-	// 1. Update Camera Matrix using the GLOBAL vCamera variable
-	// This allows the Update() function to actually move the camera.
-	vec3d vTarget = vFocusPoint;
+	// Point camera at the focus point (the ground)
 	vec3d vUp = { 0.0f, 1.0f, 0.0f };
-
-	mat4x4 matCamera = Matrix_PointAt(vCamera, vTarget, vUp);
+	mat4x4 matCamera = Matrix_PointAt(vCamera, vFocusPoint, vUp);
 	mat4x4 matView = Matrix_QuickInverse(matCamera);
 
-	// 2. Draw
 	render3D->Draw(matView, matProj, vCamera);
 	renderUI->Draw();
 }
