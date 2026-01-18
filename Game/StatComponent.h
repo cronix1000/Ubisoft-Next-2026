@@ -5,4 +5,5 @@ struct StatComponent {
     int maxHealth = 100;
     int damage = 10;
     int teamID = 0;
+    int score = 0;
 };
