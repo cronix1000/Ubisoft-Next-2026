@@ -51,7 +51,7 @@ namespace ShapeBuilder
     mesh CreateCubeScales(vec3d scale, float r, float g, float b, bool openTop = false) {
         mesh composite;
 
-        AddMesh(composite, CreateCube(0.5f, 0.5f, 0.5f, true), { 0,0,0 }, scale);
+        AddMesh(composite, CreateCube(0.2f, 0.2f, 0.2f), { 0,0,0 }, scale);
         return composite;
     }
 

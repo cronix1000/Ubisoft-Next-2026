@@ -62,7 +62,11 @@ float fTheta = 0.0f;
 bool isMousePressed;
 bool isRightPressed;
 bool wasRightPressed = false;
-
+enum UnitType {
+    meleeGrunt,
+    Ranged,
+    Catapult
+};
 
 vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
 {
@@ -121,33 +125,6 @@ vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
     return worldPos;
 }
 
-void SpawnEnemySquad(float startX, float startZ) 
-{
-    // 1. Create the SQUAD LEADER (Virtual Entity)
-    Entity squadEnt = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(squadEnt, TransformComponent{ {startX, 0, startZ} });
-    gCoordinator.AddComponent(squadEnt, SquadComponent{ 1, {startX,0,startZ}, 5000.0f, 5.0f });
-    // Note: No MeshComponent! It's invisible.
-
-    // 2. Spawn SOLDIERS attached to this squad
-    int squadSize = 5;
-    for(int i=0; i<squadSize; i++) 
-    {
-        Entity soldier = gCoordinator.CreateEntity();
-        
-        // Calculate Formation Offset (Circle)
-        float theta = i * (6.28f / squadSize); // 360 degrees / count
-        float radius = 2.5f;
-        vec3d offset = { cosf(theta)*radius, 0, sinf(theta)*radius };
-
-        gCoordinator.AddComponent(soldier, TransformComponent{ {startX + offset.x, 0, startZ + offset.z} });
-        gCoordinator.AddComponent(soldier, MeshComponent{ ShapeBuilder::CreateWarrior() });
-        gCoordinator.AddComponent(soldier, FactionComponent{ 1 });
-        gCoordinator.AddComponent(soldier, AIComponent{ AIComponent::Type::Wander }); // Just tagging it as AI        
-        // LINK TO SQUAD
-        gCoordinator.AddComponent(soldier, SquadMemberComponent{ squadEnt, {startX, 0, startZ} });
-    }
-}
 
 mesh CreateScaledWarrior(float scale) {
     mesh raw = ShapeBuilder::CreateWarrior();
@@ -183,6 +160,73 @@ mesh CreateEnemyWarrior(float scale) {
         gCoordinator.AddComponent(enemy, UnitComponent{ {startX,0,startZ}, false, 5.0f, false });
     }
 }
+
+    void SpawnEnemySquad(int count, vec3d position)
+    {
+        // 1. Create the Squad Leader (The "Brain")
+        Entity leader = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(leader, TransformComponent{ position });
+        // Team ID 1 = Enemy
+        gCoordinator.AddComponent(leader, SquadComponent{ 1, position, 0, 0, 4.0f });
+
+        // 2. Create the Members (The "Grunts")
+        for (int i = 0; i < count; i++)
+        {
+            Entity grunt = gCoordinator.CreateEntity();
+
+            // Start them near the leader
+            vec3d spawnPos = { position.x + (rand() % 10) / 10.0f, 0, position.z + (rand() % 10) / 10.0f };
+
+            gCoordinator.AddComponent(grunt, TransformComponent{ spawnPos });
+            gCoordinator.AddComponent(grunt, UnitComponent{  }); // Add your normal stats
+            gCoordinator.AddComponent(grunt, MeshComponent{ CreateEnemyWarrior(.2f) });
+            gCoordinator.AddComponent(grunt, FactionComponent{ 1 }); 
+            gCoordinator.AddComponent(grunt, ColliderComponent{});
+
+            // IMPORTANT: Add SquadMember pointing to the Leader
+            gCoordinator.AddComponent(grunt, SquadMemberComponent{ leader, {0,0,0} });
+
+            // Add AIComponent for shooting, but AISystem will skip 'Wander' because of SquadMemberComponent
+            gCoordinator.AddComponent(grunt, AIComponent{ AIComponent::Type::Chaser, });
+        }
+
+        // 3. Calculate initial offsets immediately
+        // (Assuming you have access to the system instance)
+        squadSystem->RecalculateFormation(leader);
+    }
+    void SpawnPlayerUnit(vec3d position, UnitType type) {
+        Entity grunt = gCoordinator.CreateEntity();
+
+        vec3d spawnPos = { position.x + (rand() % 10) / 10.0f, 0, position.z + (rand() % 10) / 10.0f };
+
+        gCoordinator.AddComponent(grunt, TransformComponent{ spawnPos });
+        gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(0.3f) }); // Smaller player units
+        gCoordinator.AddComponent(grunt, FactionComponent{ 0 });
+        gCoordinator.AddComponent(grunt, ColliderComponent{});
+
+        gCoordinator.AddComponent(grunt, UnitComponent{ {0,0,0}, false, 8.0f, false });
+
+        gCoordinator.AddComponent(grunt, SquadMemberComponent{ playerUnit, {0,0,0} });
+
+        gCoordinator.AddComponent(grunt, AIComponent{ AIComponent::Type::Wander });
+        squadSystem->RecalculateFormation(playerUnit);
+    }
+    void SpawnPlayerSquad(int count, vec3d position)
+{
+
+    Entity leader = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(leader, TransformComponent{ position });
+    gCoordinator.AddComponent(leader, SquadComponent{ 0, position, 0, 0, 10.0f }); // Team 0 = Player
+
+    playerUnit = leader; 
+
+    // 2. Create the Members (The units you see)
+    for (int i = 0; i < count; i++)
+    {
+        SpawnPlayerUnit(position, UnitType::meleeGrunt);
+    }
+}
+
 //------------------------------------------------------------------------
 // Called before first update. Do any initial setup here.
 //------------------------------------------------------------------------
@@ -282,17 +326,6 @@ void Init()
         gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} });
         gCoordinator.AddComponent(ground, MeshComponent{ groundMesh });
 
-        // -- Player Unit (Commandable) --
-        Entity warrior = gCoordinator.CreateEntity();
-        mesh warriorMesh = ShapeBuilder::CreateWarrior();
-        gCoordinator.AddComponent(warrior, TransformComponent{ {0, 0, 0} });
-        gCoordinator.AddComponent(warrior, MeshComponent{ warriorMesh });
-
-        // FIX: Add UnitComponent so PlayerControlSystem can control it!
-        // targetPos={0,0,0}, isMoving=false, speed=10.0f, isSelected=true
-        gCoordinator.AddComponent(warrior, UnitComponent{ {0,0,0}, false, 10.0f, true });
-        gCoordinator.AddComponent(warrior, FactionComponent{ 0 }); // Team 0 = Player
-
         // -- Buildings --
         Entity factory = gCoordinator.CreateEntity();
         gCoordinator.AddComponent(factory, TransformComponent{ {5, 0, 5} });
@@ -316,7 +349,8 @@ void Init()
         gCoordinator.AddComponent(mouseCursor, TransformComponent{ {0,0,0} });
 
         // 4. SPAWN ENEMIES
-        SpawnEnemyGroup(20.0f, 20.0f, 5); // Use the new group spawner
+        SpawnEnemySquad(20.0f, {5, 0, 5}); // Use the new group spawner
+        SpawnPlayerSquad(100, { 0, 0, 0 });
 
         // 5. CAMERA SETUP (The Fix for Black Screen)
         float zoom = 15.0f;
@@ -344,7 +378,11 @@ void Init()
 //------------------------------------------------------------------------
 void Update(const float deltaTime)
 {
+    float screenCenterX = (float)APP_VIRTUAL_WIDTH / 2.0f;
+    float screenCenterY = (float)APP_VIRTUAL_HEIGHT / 2.0f;
 
+    // Convert to World Position
+    vec3d worldCenter = GetIsoWorldCoordinates(screenCenterX, screenCenterY);
 float mouseX, mouseY;
     App::GetMousePos(mouseX, mouseY);
     float mouseYUI = APP_VIRTUAL_HEIGHT - mouseY;
@@ -380,9 +418,7 @@ float mouseX, mouseY;
         float offsetX = (rand() % 100) / 50.0f; 
         float offsetZ = (rand() % 100) / 50.0f;
 
-        gCoordinator.AddComponent(unit, TransformComponent{ {5.0f + offsetX, 0, 5.0f + offsetZ} });
-        gCoordinator.AddComponent(unit, MeshComponent{ warriorMesh });
-        gCoordinator.AddComponent(unit, UnitComponent{}); // Default constructor sets defaults
+        SpawnPlayerUnit(worldCenter, UnitType::meleeGrunt);
     }
 	if (clickedID == btnScore)
     {
@@ -437,6 +473,20 @@ float mouseX, mouseY;
     {
      playerSystem->Update(deltaTime);  
 	}
+
+
+
+    // Update Position (Only if raycast hit something valid)
+    if (worldCenter.x != 0.0f || worldCenter.z != 0.0f)
+    {
+        Entity playerLeader = playerUnit;
+        if (playerLeader != -1)
+        {
+            auto& trans = gCoordinator.GetComponent<TransformComponent>(playerLeader);
+            trans.Pos = worldCenter;
+        }
+    }
+
 
     float speed = 20.0f * deltaTime / 1000.0f;
     if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;

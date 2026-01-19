@@ -89,4 +89,4 @@ private:
         gCoordinator.AddComponent(bullet, ColliderComponent{ 0.5f, true, false });
         gCoordinator.AddComponent(bullet, ProjectileComponent{ velocity, 10, ownerTeam, 2.0f });
     }
-};;
+};

@@ -48,7 +48,7 @@ public:
                     // If in range, STOP and FIRE
                     if (dist <= ai.attackRange)
                     {
-                        unit.isMoving = false; // Override Squad command
+                        //unit.isMoving = false; // Override Squad command
 
                         if (ai.attackCooldown <= 0)
                         {
