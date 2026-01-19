@@ -60,27 +60,31 @@ private:
 
     void ResolveCollision(Entity a, Entity b, std::set<Entity>& destroyedSet)
     {
-        // 1. Ensure both have Stats (Health/Damage/Team)
-        if (!gCoordinator.HasComponent<StatComponent>(a) || 
+        // 1. Ensure both have Stats (Health/Damage)
+        if (!gCoordinator.HasComponent<StatComponent>(a) ||
             !gCoordinator.HasComponent<StatComponent>(b)) return;
 
         auto& statA = gCoordinator.GetComponent<StatComponent>(a);
         auto& statB = gCoordinator.GetComponent<StatComponent>(b);
 
-        // 2. Friendly Fire Check
-        if (statA.teamID == statB.teamID) return;
+
+        if (gCoordinator.HasComponent<FactionComponent>(a) &&
+            gCoordinator.HasComponent<FactionComponent>(b))
+        {
+            auto& factionA = gCoordinator.GetComponent<FactionComponent>(a);
+            auto& factionB = gCoordinator.GetComponent<FactionComponent>(b);
+
+            if (factionA.teamId == factionB.teamId) return;
+        }
 
         // 3. Apply Damage (Mutual Exchange)
-        // If 'damage' is 0 (like a Ranged Unit touching someone), nothing happens.
         ApplyDamage(a, statA, statB.damage, destroyedSet);
-        if(destroyedSet.count(a)) {
-             // If A died, we still apply A's damage to B (e.g., bullet hits B)
-             // But we don't access 'a' components anymore if we destroyed it inside ApplyDamage
+        if (destroyedSet.count(a)) {
+            // If A died, stop processing A
         }
         ApplyDamage(b, statB, statA.damage, destroyedSet);
 
         // 4. Handle Projectile Self-Destruction
-        // Even if the projectile didn't die from "Health", it dies because it hit something.
         HandleProjectileBehavior(a, destroyedSet);
         HandleProjectileBehavior(b, destroyedSet);
     }

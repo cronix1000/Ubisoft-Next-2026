@@ -39,6 +39,9 @@ Entity mouseCursor; // Holds our "Ghost" builder state
 Entity btnScore;
 Entity btnBuild;
 Entity btnSpawnUnit;
+Entity btnSpawnMelee;
+Entity btnSpawnRanged;
+Entity btnSpawnCatapult;
 Entity playerUnit;
 std::shared_ptr<SquadSystem> squadSystem;       
 std::shared_ptr<AnimationSystem> animationSystem;
@@ -63,6 +66,7 @@ float fTheta = 0.0f;
 bool isMousePressed;
 bool isRightPressed;
 bool wasRightPressed = false;
+const float playerSpeed = 12;
 
 
 vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
@@ -165,17 +169,17 @@ mesh CreateEnemyWarrior(float scale) {
 			UnitComponent::UnitType unitType;
 			if (roll < meleeWeight) {
 				unitType = UnitComponent::UnitType::meleeGrunt;
-				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 15, 1 });
+				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 15, 0});
 				scale = 0.3f;
 			}
 			else if (roll < meleeWeight + rangedWeight) {
 				unitType = UnitComponent::UnitType::Ranged;
-				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 1 });
+				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 0 });
 				scale = 0.25f;
 			}
 			else {
 				unitType = UnitComponent::UnitType::Catapult;
-				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 1 });
+				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 0 });
 				scale = 0.4f;
 			}
             gCoordinator.AddComponent(grunt, UnitComponent{ unitType, spawnPos, false, 5.0f, false });
@@ -200,11 +204,27 @@ mesh CreateEnemyWarrior(float scale) {
         vec3d spawnPos = { position.x + (rand() % 10) / 10.0f, 0, position.z + (rand() % 10) / 10.0f };
 
         gCoordinator.AddComponent(grunt, TransformComponent{ spawnPos });
-        gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(scale) }); // Smaller player units
         gCoordinator.AddComponent(grunt, FactionComponent{ 0 });
         gCoordinator.AddComponent(grunt, ColliderComponent{scale * 0.5f});
+        switch (type) {
+        case UnitComponent::UnitType::meleeGrunt:
+            gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 15, 0 });
+            scale = 0.3f;
+            break;
+        case UnitComponent::UnitType::Ranged:
+            gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 0 });
+            scale = 0.5f;
+            break;
+        case UnitComponent::UnitType::Catapult:
+            gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 0 });
+                scale = 0.8f;
+            break;
+        }
+        gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(scale) }); // Smaller player units
 
-        gCoordinator.AddComponent(grunt, UnitComponent{ type, spawnPos, false, 8.0f, false });
+
+
+        gCoordinator.AddComponent(grunt, UnitComponent{ type, spawnPos, false, playerSpeed, false });
 
         gCoordinator.AddComponent(grunt, SquadMemberComponent{ playerUnit, {0,0,0} });
 
@@ -223,7 +243,7 @@ mesh CreateEnemyWarrior(float scale) {
     // 2. Create the Members (The units you see)
     for (int i = 0; i < count; i++)
     {
-        SpawnPlayerUnit(position, UnitComponent::UnitType::meleeGrunt);
+        SpawnPlayerUnit(position, UnitComponent::UnitType::Ranged);
     }
 }
 
@@ -284,17 +304,20 @@ void Init()
         sigCol.set(gCoordinator.GetComponentType<TransformComponent>());
         sigCol.set(gCoordinator.GetComponentType<ColliderComponent>());
 		sigCol.set(gCoordinator.GetComponentType<FactionComponent>());
+        sigCol.set(gCoordinator.GetComponentType<StatComponent>());
         gCoordinator.SetSystemSignature<CollisionSystem>(sigCol);
 
 
         squadSystem = gCoordinator.RegisterSystem<SquadSystem>(); // NEW
-        {
+   
             Signature sig;
             sig.set(gCoordinator.GetComponentType<TransformComponent>());
-            // SquadSystem filters internally, so Transform is the minimum
+
             gCoordinator.SetSystemSignature<SquadSystem>(sig);
-        }
+
+
         playerSystem = gCoordinator.RegisterSystem<PlayerControlSystem>();
+
         Signature sigPlayer;
         sigPlayer.set(gCoordinator.GetComponentType<UnitComponent>());
         gCoordinator.SetSystemSignature<PlayerControlSystem>(sigPlayer);
@@ -341,13 +364,53 @@ void Init()
         btnSpawnUnit = gCoordinator.CreateEntity();
         gCoordinator.AddComponent(btnSpawnUnit, UIButton{ 50, 150, 150, 40, "Spawn Unit", 0.7f, 0.2f, 0.2f });
 
+        // Unit cards at bottom center
+        float cardWidth = 120.0f;
+        float cardHeight = 80.0f;
+        float cardSpacing = 20.0f;
+        float centerX = APP_VIRTUAL_WIDTH / 2.0f;
+        float bottomY = APP_VIRTUAL_HEIGHT - cardHeight - 20.0f;
+        
+        // Melee Grunt - 10 gold
+        btnSpawnMelee = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(btnSpawnMelee, UIButton{
+            centerX - (cardWidth * 1.5f + cardSpacing),
+            bottomY,
+            cardWidth,
+            cardHeight,
+            "Melee\n10g",
+            0.5f, 0.7f, 0.3f
+        });
+        
+        // Ranged - 20 gold
+        btnSpawnRanged = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(btnSpawnRanged, UIButton{
+            centerX - (cardWidth / 2.0f),
+            bottomY,
+            cardWidth,
+            cardHeight,
+            "Ranged\n20g",
+            0.3f, 0.5f, 0.8f
+        });
+        
+        // Catapult - 50 gold
+        btnSpawnCatapult = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(btnSpawnCatapult, UIButton{
+            centerX + (cardWidth / 2.0f + cardSpacing),
+            bottomY,
+            cardWidth,
+            cardHeight,
+            "Catapult\n50g",
+            0.8f, 0.3f, 0.3f
+        });
+
         mouseCursor = gCoordinator.CreateEntity();
         gCoordinator.AddComponent(mouseCursor, TransformComponent{ {0,0,0} });
 
         // 4. SPAWN ENEMIES
-        SpawnEnemySquad(20.0f, {5, 0, 5}); // Use the new group spawner
-		SpawnEnemySquad(15.0f, {-10, 0, -10});
-		SpawnEnemySquad(10.0f, {15, 0, -15});
+        SpawnEnemySquad(50.0f, {-10, 0, 5}); // Use the new group spawner
+		SpawnEnemySquad(35.0f, {-10, 0, -50});
+		SpawnEnemySquad(20.0f, {15, 0, -15});
         SpawnPlayerSquad(100, { 0, 0, 0 });
 
         // 5. CAMERA SETUP (The Fix for Black Screen)
@@ -400,8 +463,22 @@ float mouseX, mouseY;
     animationSystem->Update(deltaTime);
     projectileSystem->Update(deltaTime);
 
+	// Get gold before processing buttons
+	auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
+	auto& goldLabel = gCoordinator.GetComponent<UILabel>(playerGold);
+	
+	// Update button disabled states based on gold
+	auto& btnMeleeUI = gCoordinator.GetComponent<UIButton>(btnSpawnMelee);
+	auto& btnRangedUI = gCoordinator.GetComponent<UIButton>(btnSpawnRanged);
+	auto& btnCatapultUI = gCoordinator.GetComponent<UIButton>(btnSpawnCatapult);
+	
+	btnMeleeUI.isDisabled = (gold.gold < 10);
+	btnRangedUI.isDisabled = (gold.gold < 20);
+	btnCatapultUI.isDisabled = (gold.gold < 50);
+
 	// 1. HANDLE UI BUTTON CLICKS
 	Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseYUI, isMousePressed);
+	
 	if (clickedID == btnSpawnUnit)
     {
         // SPAWN LOGIC
@@ -417,15 +494,44 @@ float mouseX, mouseY;
 
         SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::meleeGrunt);
     }
+    
+    // Melee unit - costs 10 gold
+    if (clickedID == btnSpawnMelee)
+    {
+        if (gold.gold >= 10)
+        {
+            SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::meleeGrunt);
+            gold.gold -= 10;
+            goldLabel.text = "Gold: " + std::to_string(gold.gold);
+        }
+    }
+    
+    // Ranged unit - costs 20 gold
+    if (clickedID == btnSpawnRanged)
+    {
+        if (gold.gold >= 20)
+        {
+            SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::Ranged);
+            gold.gold -= 20;
+            goldLabel.text = "Gold: " + std::to_string(gold.gold);
+        }
+    }
+    
+    // Catapult unit - costs 50 gold
+    if (clickedID == btnSpawnCatapult)
+    {
+        if (gold.gold >= 50)
+        {
+            SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::Catapult);
+            gold.gold -= 50;
+            goldLabel.text = "Gold: " + std::to_string(gold.gold);
+        }
+    }
 	if (clickedID == btnScore)
     {
         // SIMPLE INTERACTION: Direct Modification
-        auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
         gold.gold += 10;
-
-        // Update the Label too
-        auto& label = gCoordinator.GetComponent<UILabel>(playerGold);
-		label.text = "Gold: " + std::to_string(gold.gold);
+		goldLabel.text = "Gold: " + std::to_string(gold.gold);
     }
 
     if (clickedID == btnBuild)
@@ -485,12 +591,18 @@ float mouseX, mouseY;
     }
 
 
-    float speed = 20.0f * deltaTime / 1000.0f;
+    float speed = playerSpeed * deltaTime / 1000.0f;
     if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
     if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
     if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
     if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
 
+
+    if (vFocusPoint.z > MAP_LIMIT) vFocusPoint.z = MAP_LIMIT;
+    if (vFocusPoint.z < -MAP_LIMIT) vFocusPoint.z = -MAP_LIMIT; // Fixed: Check < -MAP_LIMIT
+
+    if (vFocusPoint.x > MAP_LIMIT) vFocusPoint.x = MAP_LIMIT;
+    if (vFocusPoint.x < -MAP_LIMIT) vFocusPoint.x = -MAP_LIMIT;
     // Recalculate Camera
     mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
     mat4x4 matYaw = Matrix_MakeRotationY(fYaw);

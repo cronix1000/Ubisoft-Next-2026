@@ -22,21 +22,10 @@ public:
 
             auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
             auto& unit = gCoordinator.GetComponent<UnitComponent>(entity);
-
-            // Assume units have AIComponent for stats/cooldowns
-            // and FactionComponent for team ID
-            // If not, add them to your entity creation!
-            bool hasCombat = gCoordinator.HasComponent<AIComponent>(entity) &&
-                gCoordinator.HasComponent<FactionComponent>(entity);
-
-            // --- COMBAT LOGIC ---
-            if (hasCombat)
-            {
-                auto& ai = gCoordinator.GetComponent<AIComponent>(entity);
                 auto& faction = gCoordinator.GetComponent<FactionComponent>(entity);
 
                 // Tick Cooldown
-                if (ai.attackCooldown > 0) ai.attackCooldown -= dt;
+                if (unit.attackCooldown > 0) unit.attackCooldown -= dt;
 
                 // Check Range
                 
@@ -47,29 +36,29 @@ public:
                     float dist = Engine3D::Vector_Distance(transform.Pos, targetTrans.Pos);
                   
                     // If in range, STOP and FIRE
-                    if (dist <= ai.attackRange)
+                    if (dist <= unit.attackRange)
                     {
                         //unit.isMoving = false; // Override Squad command
 
-                        if (ai.attackCooldown <= 0)
+                        if (unit.attackCooldown <= 0)
                         { 
                              switch(unit.type){
                         case UnitComponent::UnitType::meleeGrunt:
-                            ai.attackRange = 2.0f;
+                            unit.attackRange = 2.0f;
                             break;
                         case UnitComponent::UnitType::Ranged:
                             SpawnBullet(transform.Pos, unit.targetEntity, faction.teamId);
                             break;
                         case UnitComponent::UnitType::Catapult:
                             SpawnCatapultRock(transform.Pos, unit.targetEntity, faction.teamId);
-                            ai.attackCooldown = 4000.0f;
+                            unit.attackCooldown = 4000.0f;
                             break;
                     }
-                            ai.attackCooldown = 2000.0f; // 2 Seconds
+                            unit.attackCooldown = 2000.0f; // 2 Seconds
                         }
                     }
                 }
-            }
+            
 
             // --- MOVEMENT LOGIC ---
             if (unit.isMoving)
@@ -120,7 +109,8 @@ private:
         gCoordinator.AddComponent(bullet, ColliderComponent{ 0.5f, true, false });
         gCoordinator.AddComponent(bullet, ProjectileComponent{ velocity, 10, ownerTeam, 2.0f });
         gCoordinator.AddComponent(bullet, ArcAnimComponent{ startPos, targetTrans.Pos, 2.0f, 0.8f, 0.0f });
-         gCoordinator.AddComponent(bullet, StatComponent{1 , 1, 20, 1});
+        gCoordinator.AddComponent(bullet, FactionComponent{ ownerTeam });
+         gCoordinator.AddComponent(bullet, StatComponent{1 , 1, 20, ownerTeam});
  
     }
 
@@ -138,6 +128,7 @@ private:
         gCoordinator.AddComponent(rock, ColliderComponent{ 0.4f, true, false });
         gCoordinator.AddComponent(rock, ProjectileComponent{ velocity, 25, ownerTeam, 3.0f });
         gCoordinator.AddComponent(rock, ArcAnimComponent{ startPos, targetTrans.Pos, 5.0f, 1.5f, 0.0f });
-        gCoordinator.AddComponent(rock, StatComponent{1 , 1, 50, 1});
+        gCoordinator.AddComponent(rock, FactionComponent{ ownerTeam });
+        gCoordinator.AddComponent(rock, StatComponent{1 , 1, 50, ownerTeam});
     }
 };

@@ -57,7 +57,7 @@ public:
             {
                 // Check if near any player faction entity or factory
                 bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 20.0f);
-                
+                vec3d velocity = { 0,0,0 };
                 if (nearPlayerFaction)
                 {
                     // Chase mode - move towards player
@@ -67,7 +67,7 @@ public:
                     if (dist > 5.0f)
                     {
                         vec3d dir = Engine3D::Vector_Normalise(Engine3D::Vector_Sub(playerPos, trans.Pos));
-                        vec3d velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * (dt / 1000.0f));
+                        velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * (dt / 1000.0f));
                         trans.Pos = Engine3D::Vector_Add(trans.Pos, velocity);
                     }
                 }
@@ -100,10 +100,21 @@ public:
                     if (dist > 1.0f)
                     {
                         vec3d dir = Engine3D::Vector_Normalise(diff);
-                        vec3d velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * 0.5f * (dt / 1000.0f));
+                        velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * 0.5f * (dt / 1000.0f));
                         trans.Pos = Engine3D::Vector_Add(trans.Pos, velocity);
                     }
                 }
+
+                vec3d nextPos = Engine3D::Vector_Add(trans.Pos, velocity);
+
+                // --- CLAMP POSITION ---
+                if (nextPos.x > MAP_LIMIT) nextPos.x = MAP_LIMIT;
+                if (nextPos.x < -MAP_LIMIT) nextPos.x = -MAP_LIMIT;
+                if (nextPos.z > MAP_LIMIT) nextPos.z = MAP_LIMIT;
+                if (nextPos.z < -MAP_LIMIT) nextPos.z = -MAP_LIMIT;
+                // ----------------------
+
+                trans.Pos = nextPos;
             }
             // --- PLAYER SQUAD: CENTER ON PLAYER ---
             else if (squad.teamId == 0)
@@ -152,7 +163,14 @@ public:
                         unit.targetEntity = nearestEnemy;
                         if (gCoordinator.HasComponent<TransformComponent>(nearestEnemy))
                         {
-                            unit.targetPos = gCoordinator.GetComponent<TransformComponent>(nearestEnemy).Pos;
+                            vec3d enemyPos = gCoordinator.GetComponent<TransformComponent>(nearestEnemy).Pos;
+
+                            unit.targetPos = Engine3D::Vector_Add(enemyPos, member.formationOffset);
+                            if (unit.targetPos.x > MAP_LIMIT) unit.targetPos.x = MAP_LIMIT;
+                            if (unit.targetPos.x < -MAP_LIMIT) unit.targetPos.x = -MAP_LIMIT;
+                            if (unit.targetPos.z > MAP_LIMIT) unit.targetPos.z = MAP_LIMIT;
+                            if (unit.targetPos.z < -MAP_LIMIT) unit.targetPos.z = -MAP_LIMIT;
+
                             unit.isMoving = true;
                         }
                     }
@@ -174,9 +192,21 @@ public:
             }
             else
             {
-                // Player units - default formation behavior
+              
                 unit.targetPos = Engine3D::Vector_Add(leaderTrans.Pos, member.formationOffset);
                 unit.isMoving = true;
+
+  
+                Entity nearestEnemy = FindNearestEnemy(trans.Pos, myTeam);
+
+                if (nearestEnemy != static_cast<Entity>(-1))
+                {
+                    unit.targetEntity = nearestEnemy;
+                }
+                else
+                {
+                    unit.targetEntity = static_cast<Entity>(-1);
+                }
             }
         }
     }

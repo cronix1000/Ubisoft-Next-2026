@@ -11,4 +11,5 @@ struct UIButton {
     bool isHovered = false;
     bool isClicked = false; 
     bool isDown = false; // True while held down
+    bool isDisabled = false; // True when button should be grayed out
 };
