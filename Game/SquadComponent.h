@@ -6,4 +6,9 @@ struct SquadComponent {
     float stateTimer;       // How long until we change orders?
     float radius;           // How spread out the squad is
     float moveSpeed = 5.0f;        // How fast the squad moves
+    AIComponent::Type currentState = AIComponent::Type::Wander; // Current behavior state
+    
+    // Wander state
+    vec3d wanderTarget = {0, 0, 0};
+    float wanderTimer = 0.0f;
 };

@@ -60,6 +60,18 @@ Signature GetSignature(Entity entity)
 }  
 
 
+std::vector<Entity> GetLivingEntities() {
+	std::vector<Entity> entities;
+	for (Entity entity = 0; entity < MAX_ENTITIES; ++entity)
+	{
+		if (mSignatures[entity].any()) // If the signature has any bits set, the entity is alive
+		{
+			entities.push_back(entity);
+		}
+	}
+	return entities;
+}
+
 
 private:  
 // Queue of unused entity IDs  

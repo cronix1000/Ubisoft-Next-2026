@@ -7,6 +7,8 @@
 #include "TransformComponent.h"
 #include "UnitComponent.h"
 #include "ThreeDVisualiser.h"
+#include "BuilderComponent.h"
+#include "ColliderComponent.h"
 
 extern Coordinator gCoordinator;
 extern Entity playerUnit; // Global reference to player
@@ -53,28 +55,64 @@ public:
             // --- ENEMY AI: CHASE PLAYER ---
             if (squad.teamId == 1)
             {
-                // Move Leader towards Player
-                float dist = Engine3D::Vector_Distance(trans.Pos, playerPos);
-
-                // Stop if we are close enough (attack range)
-                if (dist > 5.0f)
+                // Check if near any player faction entity or factory
+                bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 20.0f);
+                
+                if (nearPlayerFaction)
                 {
-                    vec3d dir = Engine3D::Vector_Normalise(Engine3D::Vector_Sub(playerPos, trans.Pos));
-                    vec3d velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * (dt / 1000.0f));
-                    trans.Pos = Engine3D::Vector_Add(trans.Pos, velocity);
+                    // Chase mode - move towards player
+                    float dist = Engine3D::Vector_Distance(trans.Pos, playerPos);
+
+                    // Stop if we are close enough (attack range)
+                    if (dist > 5.0f)
+                    {
+                        vec3d dir = Engine3D::Vector_Normalise(Engine3D::Vector_Sub(playerPos, trans.Pos));
+                        vec3d velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * (dt / 1000.0f));
+                        trans.Pos = Engine3D::Vector_Add(trans.Pos, velocity);
+                    }
+                }
+                else
+                {
+                    // Wander mode - move squad to random positions
+                    squad.wanderTimer -= dt;
+                    
+                    if (squad.wanderTimer <= 0.0f)
+                    {
+                        // Pick new random wander target
+                        float wanderRadius = 15.0f;
+                        float randomAngle = (rand() % 360) * (PI / 180.0f);
+                        float randomDist = (rand() % 100) / 100.0f * wanderRadius;
+                        
+                        squad.wanderTarget = {
+                            trans.Pos.x + randomDist * cosf(randomAngle),
+                            trans.Pos.y,
+                            trans.Pos.z + randomDist * sinf(randomAngle)
+                        };
+                        
+                        // Set new timer (3-6 seconds)
+                        squad.wanderTimer = 3000.0f + (rand() % 3000);
+                    }
+                    
+                    // Move towards wander target
+                    vec3d diff = Engine3D::Vector_Sub(squad.wanderTarget, trans.Pos);
+                    float dist = sqrtf(diff.x * diff.x + diff.z * diff.z);
+                    
+                    if (dist > 1.0f)
+                    {
+                        vec3d dir = Engine3D::Vector_Normalise(diff);
+                        vec3d velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * 0.5f * (dt / 1000.0f));
+                        trans.Pos = Engine3D::Vector_Add(trans.Pos, velocity);
+                    }
                 }
             }
             // --- PLAYER SQUAD: CENTER ON PLAYER ---
             else if (squad.teamId == 0)
             {
-                // If this is the main squad, SNAP the leader position to the Player Unit
-                // This ensures the squad is always "in the middle" (surrounding the player)
-                // We check dist to avoid jitter, or just hard set it.
+               
                 if (entity == GetPlayerSquadLeader())
                 {
                     trans.Pos = playerPos;
                 }
-                // If it's a split-off squad, it stays put (or moves to clicked location logic if you add it)
             }
         }
 
@@ -85,16 +123,64 @@ public:
 
             auto& member = gCoordinator.GetComponent<SquadMemberComponent>(entity);
             auto& unit = gCoordinator.GetComponent<UnitComponent>(entity);
+            auto& trans = gCoordinator.GetComponent<TransformComponent>(entity);
 
             // Get Leader Position
             if (!gCoordinator.HasComponent<TransformComponent>(member.squadId)) continue;
             auto& leaderTrans = gCoordinator.GetComponent<TransformComponent>(member.squadId);
 
-            // Target = LeaderPos + Offset
-            unit.targetPos = Engine3D::Vector_Add(leaderTrans.Pos, member.formationOffset);
-            unit.isMoving = true;
+            // Determine team
+            int myTeam = -1;
+            if (gCoordinator.HasComponent<FactionComponent>(entity))
+            {
+                myTeam = gCoordinator.GetComponent<FactionComponent>(entity).teamId;
+            }
+
+            // Only enemy units (team 1) should engage enemies
+            if (myTeam == 1)
+            {
+                // Check if near any player faction entity or factory
+                bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 20.0f);
+                
+                if (nearPlayerFaction)
+                {
+                    // Find and engage nearest enemy
+                    Entity nearestEnemy = FindNearestEnemy(trans.Pos, myTeam);
+                    
+                    if (nearestEnemy != static_cast<Entity>(-1))
+                    {
+                        unit.targetEntity = nearestEnemy;
+                        if (gCoordinator.HasComponent<TransformComponent>(nearestEnemy))
+                        {
+                            unit.targetPos = gCoordinator.GetComponent<TransformComponent>(nearestEnemy).Pos;
+                            unit.isMoving = true;
+                        }
+                    }
+                    else
+                    {
+                        // No enemy found - return to formation
+                        unit.targetEntity = static_cast<Entity>(-1);
+                        unit.targetPos = Engine3D::Vector_Add(leaderTrans.Pos, member.formationOffset);
+                        unit.isMoving = true;
+                    }
+                }
+                else
+                {
+                    // Not near player faction - maintain formation while squad wanders
+                    unit.targetEntity = static_cast<Entity>(-1);
+                    unit.targetPos = Engine3D::Vector_Add(leaderTrans.Pos, member.formationOffset);
+                    unit.isMoving = true;
+                }
+            }
+            else
+            {
+                // Player units - default formation behavior
+                unit.targetPos = Engine3D::Vector_Add(leaderTrans.Pos, member.formationOffset);
+                unit.isMoving = true;
+            }
         }
     }
+
 
     // Helper to find which squad leader is currently attached to the player
     Entity GetPlayerSquadLeader()
@@ -107,6 +193,63 @@ public:
                 if (squad.teamId == 0) return entity; // Assuming first one is main for now
             }
         }
-        return -1;
+        return static_cast<Entity>(-1);
+    }
+
+    bool IsNearPlayerFactionOrFactory(vec3d myPos, float maxRange)
+    {
+        float maxRangeSq = maxRange * maxRange;
+
+        // Check all entities for player faction or factories
+        for (auto const& targetEntity : mEntities)
+        {
+            if (!gCoordinator.HasComponent<TransformComponent>(targetEntity)) continue;
+            auto& tPos = gCoordinator.GetComponent<TransformComponent>(targetEntity).Pos;
+            float distSq = (tPos.x - myPos.x) * (tPos.x - myPos.x) + (tPos.z - myPos.z) * (tPos.z - myPos.z);
+
+            if (distSq <= maxRangeSq)
+            {
+                // Check if it's player faction (team 0)
+                if (gCoordinator.HasComponent<FactionComponent>(targetEntity))
+                {
+                    auto& faction = gCoordinator.GetComponent<FactionComponent>(targetEntity);
+                    if (faction.teamId == 0) return true;
+                }
+
+                // Check if it's a factory with collider
+                if (gCoordinator.HasComponent<BuilderComponent>(targetEntity) &&
+                    gCoordinator.HasComponent<ColliderComponent>(targetEntity))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    Entity FindNearestEnemy(vec3d myPos, int myTeam)
+    {
+        Entity nearest = static_cast<Entity>(-1);
+        float minDstSq = 20.0f * 20.0f; // Max Search Range
+
+        // Iterate all entities to find enemies
+        // (In optimized engine, use a Spatial Partition or specific list)
+        for (auto const& targetEntity : mEntities)
+        {
+            if (!gCoordinator.HasComponent<FactionComponent>(targetEntity)) continue;
+            auto& targetFaction = gCoordinator.GetComponent<FactionComponent>(targetEntity);
+
+            if (targetFaction.teamId != myTeam)
+            {
+                auto& tPos = gCoordinator.GetComponent<TransformComponent>(targetEntity).Pos;
+                float distSq = (tPos.x - myPos.x) * (tPos.x - myPos.x) + (tPos.z - myPos.z) * (tPos.z - myPos.z);
+
+                if (distSq < minDstSq) {
+                    minDstSq = distSq;
+                    nearest = targetEntity;
+                }
+            }
+        }
+        return nearest;
     }
 };

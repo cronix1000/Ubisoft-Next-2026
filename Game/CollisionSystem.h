@@ -14,38 +14,27 @@ class CollisionSystem : public System
 public:
     void Update(float dt)
     {
-        // 1. Copy entities to a vector for indexed access
-        // (This allows us to perform the O(N^2) check: Entity A vs Entity B)
-        std::vector<Entity> entities(mEntities.begin(), mEntities.end());
+        // Copy entities to vector for indexed O(N^2) access
+        auto entities = std::vector<Entity>(mEntities.begin(), mEntities.end());
         std::set<Entity> destroyedThisFrame;
 
-        // 2. Iterate Unique Pairs
         for (size_t i = 0; i < entities.size(); ++i)
         {
             Entity entityA = entities[i];
-
-            // Skip if A was destroyed earlier in the frame
             if (destroyedThisFrame.count(entityA)) continue;
 
             for (size_t j = i + 1; j < entities.size(); ++j)
             {
                 Entity entityB = entities[j];
-
-                // Skip if B was destroyed earlier
                 if (destroyedThisFrame.count(entityB)) continue;
 
-                // 3. Check Collision
+                // 1. Physical Collision Check
                 if (CheckCollision(entityA, entityB))
                 {
                     ResolveCollision(entityA, entityB, destroyedThisFrame);
 
-                    // --- THE FIX ---
-                    // If Entity A was destroyed during this collision (e.g. it was the bullet or the victim), 
-                    // we MUST stop comparing it to others immediately.
-                    if (destroyedThisFrame.count(entityA))
-                    {
-                        break;
-                    }
+                    // If A died in this interaction, stop checking A against others
+                    if (destroyedThisFrame.count(entityA)) break;
                 }
             }
         }
@@ -54,12 +43,10 @@ public:
 private:
     bool CheckCollision(Entity a, Entity b)
     {
-        // Get Components (Assumes entities exist due to destroyedThisFrame check)
         auto& transA = gCoordinator.GetComponent<TransformComponent>(a);
-        auto& colA = gCoordinator.GetComponent<ColliderComponent>(a);
-
+        auto& colA   = gCoordinator.GetComponent<ColliderComponent>(a);
         auto& transB = gCoordinator.GetComponent<TransformComponent>(b);
-        auto& colB = gCoordinator.GetComponent<ColliderComponent>(b);
+        auto& colB   = gCoordinator.GetComponent<ColliderComponent>(b);
 
         float dx = transA.Pos.x - transB.Pos.x;
         float dy = transA.Pos.y - transB.Pos.y;
@@ -73,41 +60,57 @@ private:
 
     void ResolveCollision(Entity a, Entity b, std::set<Entity>& destroyedSet)
     {
-        bool aIsProj = gCoordinator.HasComponent<ProjectileComponent>(a);
-        bool bIsProj = gCoordinator.HasComponent<ProjectileComponent>(b);
+        // 1. Ensure both have Stats (Health/Damage/Team)
+        if (!gCoordinator.HasComponent<StatComponent>(a) || 
+            !gCoordinator.HasComponent<StatComponent>(b)) return;
 
-        // --- CASE 1: Projectile vs Unit ---
-        if (aIsProj && !bIsProj) {
-            HandleProjectileHit(a, b, destroyedSet);
+        auto& statA = gCoordinator.GetComponent<StatComponent>(a);
+        auto& statB = gCoordinator.GetComponent<StatComponent>(b);
+
+        // 2. Friendly Fire Check
+        if (statA.teamID == statB.teamID) return;
+
+        // 3. Apply Damage (Mutual Exchange)
+        // If 'damage' is 0 (like a Ranged Unit touching someone), nothing happens.
+        ApplyDamage(a, statA, statB.damage, destroyedSet);
+        if(destroyedSet.count(a)) {
+             // If A died, we still apply A's damage to B (e.g., bullet hits B)
+             // But we don't access 'a' components anymore if we destroyed it inside ApplyDamage
         }
-        else if (bIsProj && !aIsProj) {
-            HandleProjectileHit(b, a, destroyedSet);
-        }
-        // --- CASE 2: Unit vs Unit (Optional Physics) ---
-        else if (!aIsProj && !bIsProj) {
-            // Logic for units bumping into each other (Pushback) goes here
-            // e.g. PushBack(a, b);
+        ApplyDamage(b, statB, statA.damage, destroyedSet);
+
+        // 4. Handle Projectile Self-Destruction
+        // Even if the projectile didn't die from "Health", it dies because it hit something.
+        HandleProjectileBehavior(a, destroyedSet);
+        HandleProjectileBehavior(b, destroyedSet);
+    }
+
+    void ApplyDamage(Entity e, StatComponent& stats, int damageAmount, std::set<Entity>& destroyedSet)
+    {
+        if (destroyedSet.count(e)) return; // Already dead
+
+        stats.health -= damageAmount;
+
+        if (stats.health <= 0)
+        {
+            DestroyEntity(e, destroyedSet);
         }
     }
 
-    void HandleProjectileHit(Entity projectile, Entity target, std::set<Entity>& destroyedSet)
+    void HandleProjectileBehavior(Entity e, std::set<Entity>& destroyedSet)
     {
-        auto& proj = gCoordinator.GetComponent<ProjectileComponent>(projectile);
+        if (destroyedSet.count(e)) return;
 
-        // Friendly Fire Check
-        if (gCoordinator.HasComponent<FactionComponent>(target)) {
-            auto& faction = gCoordinator.GetComponent<FactionComponent>(target);
-            // If same team, ignore collision entirely
-            if (faction.teamId == proj.ownerTeamId) return;
+        // If it is a projectile, it dies on ANY valid collision
+        if (gCoordinator.HasComponent<ProjectileComponent>(e))
+        {
+            DestroyEntity(e, destroyedSet);
         }
+    }
 
-        // --- APPLY DAMAGE LOGIC ---
-        //// if (gCoordinator.HasComponent<CombatStats>(target)) { ... }
-        gCoordinator.DestroyEntity(target);
-        destroyedSet.insert(target);
-
-        // --- DESTROY PROJECTILE ---
-        gCoordinator.DestroyEntity(projectile);
-        destroyedSet.insert(projectile); // Mark as dead so we don't process it again this loop
+    void DestroyEntity(Entity e, std::set<Entity>& destroyedSet)
+    {
+        gCoordinator.DestroyEntity(e);
+        destroyedSet.insert(e);
     }
 };

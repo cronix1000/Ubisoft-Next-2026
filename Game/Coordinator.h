@@ -29,6 +29,10 @@ public:
 		mSystemManager->EntityDestroyed(entity);
 	}
 
+	std::vector<Entity> GetLivingEntities() {
+		return mEntityManager->GetLivingEntities();
+	}
+
 
 	// Component methods
 	template<typename T>

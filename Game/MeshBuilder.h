@@ -48,10 +48,66 @@ namespace ShapeBuilder
         return m;
     }
 
+        // HEXAGON (Hexagonal Prism)
+    mesh CreateHexagon(float r, float g, float b, float height = 1.0f)
+    {
+        mesh m;
+        float radius = 0.5f;
+        float centerX = 0.5f;
+        float centerZ = 0.5f;
+
+        // Generate 6 vertices around the center for bottom and top
+        vec3d bottomVerts[6];
+        vec3d topVerts[6];
+
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = (PI / 3.0f) * i; // 60 degrees per vertex
+            float x = centerX + radius * cos(angle);
+            float z = centerZ + radius * sin(angle);
+
+            bottomVerts[i] = { x, 0.0f, z, 1 };
+            topVerts[i] = { x, height, z, 1 };
+        }
+
+        vec3d bottomCenter = { centerX, 0.0f, centerZ, 1 };
+        vec3d topCenter = { centerX, height, centerZ, 1 };
+
+        // Bottom face (6 triangles radiating from center)
+        for (int i = 0; i < 6; i++)
+        {
+            int next = (i + 1) % 6;
+            m.tris.push_back({ bottomCenter, bottomVerts[next], bottomVerts[i], r, g, b });
+        }
+
+        // Top face (6 triangles radiating from center)
+        for (int i = 0; i < 6; i++)
+        {
+            int next = (i + 1) % 6;
+            m.tris.push_back({ topCenter, topVerts[i], topVerts[next], r, g, b });
+        }
+
+        // Side faces (6 rectangular faces, each made of 2 triangles)
+        for (int i = 0; i < 6; i++)
+        {
+            int next = (i + 1) % 6;
+            AddQuad(m, bottomVerts[i], bottomVerts[next], topVerts[next], topVerts[i], r, g, b);
+        }
+
+        return m;
+    }
+
     mesh CreateCubeScales(vec3d scale, float r, float g, float b, bool openTop = false) {
         mesh composite;
 
         AddMesh(composite, CreateCube(0.2f, 0.2f, 0.2f), { 0,0,0 }, scale);
+        return composite;
+    }
+
+    mesh CreateHexagonScales(vec3d scale, float r, float g, float b, float height = 1.0f) {
+        mesh composite;
+
+        AddMesh(composite, CreateHexagon(r, g, b, height), { 0,0,0 }, scale);
         return composite;
     }
 
@@ -123,4 +179,6 @@ namespace ShapeBuilder
         AddMesh(composite, CreateCube(1, 0.8f, 0.6f), { 0.1f, 0.8f, 0.1f }, { 0.3f, 0.3f, 0.3f });
         return composite;
     }
+
+
 }

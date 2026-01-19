@@ -21,7 +21,6 @@
 #include "FactionComponent.h"
 #include "SquadMemberComponent.h"
 #include "CollisionSystem.h"
-#include "AISystem.h"
 #include "PlayerControlSystem.h"
 #include "UnitComponent.h"
 #include "SquadSystem.h"           
@@ -29,11 +28,13 @@
 #include "ArcAnimComponent.h"
 #include "ProjectileSystem.h"
 #include "ProjectileComponent.h"
+#include "UnitType.h"
+#include "GoldComponent.h"
 
 using namespace Engine3D;
 
 Coordinator gCoordinator;
-Entity playerStats; // Holds our Score
+Entity playerGold; // Holds our Score
 Entity mouseCursor; // Holds our "Ghost" builder state
 Entity btnScore;
 Entity btnBuild;
@@ -43,7 +44,7 @@ std::shared_ptr<SquadSystem> squadSystem;
 std::shared_ptr<AnimationSystem> animationSystem;
 std::shared_ptr<UnitSystem> unitSystem; 
 std::shared_ptr<CollisionSystem> collisionSystem;
-std::shared_ptr<AISystem> aiSystem;
+
 std::shared_ptr<Render3DSystem> render3D;
 std::shared_ptr<UIRenderSystem> renderUI;
 std::shared_ptr<UIButtonSystem> renderButtonUI;
@@ -62,11 +63,7 @@ float fTheta = 0.0f;
 bool isMousePressed;
 bool isRightPressed;
 bool wasRightPressed = false;
-enum UnitType {
-    meleeGrunt,
-    Ranged,
-    Catapult
-};
+
 
 vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
 {
@@ -142,25 +139,6 @@ mesh CreateEnemyWarrior(float scale) {
     return finalMesh;
 }
 
-	void SpawnEnemyGroup(float startX, float startZ, int count)
-{
-    for(int i = 0; i < count; i++)
-    {
-        Entity enemy = gCoordinator.CreateEntity();
-
-        // Randomize start slightly
-        float rX = (rand() % 20) / 10.0f; 
-        float rZ = (rand() % 20) / 10.0f;
-
-        gCoordinator.AddComponent(enemy, TransformComponent{ {startX + rX, 0, startZ + rZ} });
-        gCoordinator.AddComponent(enemy, MeshComponent{ CreateEnemyWarrior(0.5f) }); // Use different color/mesh if possible
-        gCoordinator.AddComponent(enemy, FactionComponent{ 1 }); // Enemy Team
-		gCoordinator.AddComponent(enemy, AIComponent{ AIComponent::Type::Wander }); // Simple AI
-		
-        gCoordinator.AddComponent(enemy, UnitComponent{ {startX,0,startZ}, false, 5.0f, false });
-    }
-}
-
     void SpawnEnemySquad(int count, vec3d position)
     {
         // 1. Create the Squad Leader (The "Brain")
@@ -168,6 +146,11 @@ mesh CreateEnemyWarrior(float scale) {
         gCoordinator.AddComponent(leader, TransformComponent{ position });
         // Team ID 1 = Enemy
         gCoordinator.AddComponent(leader, SquadComponent{ 1, position, 0, 0, 4.0f });
+
+		float meleeWeight = 0.7f;
+		float rangedWeight = 0.2f;
+		float catapultWeight = 0.1f;
+		float scale = 0.3f;
 
         // 2. Create the Members (The "Grunts")
         for (int i = 0; i < count; i++)
@@ -178,33 +161,50 @@ mesh CreateEnemyWarrior(float scale) {
             vec3d spawnPos = { position.x + (rand() % 10) / 10.0f, 0, position.z + (rand() % 10) / 10.0f };
 
             gCoordinator.AddComponent(grunt, TransformComponent{ spawnPos });
-            gCoordinator.AddComponent(grunt, UnitComponent{  }); // Add your normal stats
-            gCoordinator.AddComponent(grunt, MeshComponent{ CreateEnemyWarrior(.2f) });
+			float roll = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+			UnitComponent::UnitType unitType;
+			if (roll < meleeWeight) {
+				unitType = UnitComponent::UnitType::meleeGrunt;
+				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 15, 1 });
+				scale = 0.3f;
+			}
+			else if (roll < meleeWeight + rangedWeight) {
+				unitType = UnitComponent::UnitType::Ranged;
+				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 1 });
+				scale = 0.25f;
+			}
+			else {
+				unitType = UnitComponent::UnitType::Catapult;
+				gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 1 });
+				scale = 0.4f;
+			}
+            gCoordinator.AddComponent(grunt, UnitComponent{ unitType, spawnPos, false, 5.0f, false });
+            gCoordinator.AddComponent(grunt, MeshComponent{ CreateEnemyWarrior(scale) });
             gCoordinator.AddComponent(grunt, FactionComponent{ 1 }); 
-            gCoordinator.AddComponent(grunt, ColliderComponent{});
+            gCoordinator.AddComponent(grunt, ColliderComponent{scale * 0.5f});
 
             // IMPORTANT: Add SquadMember pointing to the Leader
             gCoordinator.AddComponent(grunt, SquadMemberComponent{ leader, {0,0,0} });
 
             // Add AIComponent for shooting, but AISystem will skip 'Wander' because of SquadMemberComponent
-            gCoordinator.AddComponent(grunt, AIComponent{ AIComponent::Type::Chaser, });
+            gCoordinator.AddComponent(grunt, AIComponent{ AIComponent::Type::Chaser });
         }
 
         // 3. Calculate initial offsets immediately
         // (Assuming you have access to the system instance)
         squadSystem->RecalculateFormation(leader);
     }
-    void SpawnPlayerUnit(vec3d position, UnitType type) {
+    void SpawnPlayerUnit(vec3d position, UnitComponent::UnitType type, float scale = 0.3f) {
         Entity grunt = gCoordinator.CreateEntity();
 
         vec3d spawnPos = { position.x + (rand() % 10) / 10.0f, 0, position.z + (rand() % 10) / 10.0f };
 
         gCoordinator.AddComponent(grunt, TransformComponent{ spawnPos });
-        gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(0.3f) }); // Smaller player units
+        gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(scale) }); // Smaller player units
         gCoordinator.AddComponent(grunt, FactionComponent{ 0 });
-        gCoordinator.AddComponent(grunt, ColliderComponent{});
+        gCoordinator.AddComponent(grunt, ColliderComponent{scale * 0.5f});
 
-        gCoordinator.AddComponent(grunt, UnitComponent{ {0,0,0}, false, 8.0f, false });
+        gCoordinator.AddComponent(grunt, UnitComponent{ type, spawnPos, false, 8.0f, false });
 
         gCoordinator.AddComponent(grunt, SquadMemberComponent{ playerUnit, {0,0,0} });
 
@@ -223,7 +223,7 @@ mesh CreateEnemyWarrior(float scale) {
     // 2. Create the Members (The units you see)
     for (int i = 0; i < count; i++)
     {
-        SpawnPlayerUnit(position, UnitType::meleeGrunt);
+        SpawnPlayerUnit(position, UnitComponent::UnitType::meleeGrunt);
     }
 }
 
@@ -251,6 +251,7 @@ void Init()
         gCoordinator.RegisterComponent<SquadComponent>();       
         gCoordinator.RegisterComponent<SquadMemberComponent>(); 
         gCoordinator.RegisterComponent<ArcAnimComponent>();
+		gCoordinator.RegisterComponent<GoldComponent>();
 
         // NOTE: We removed SquadComponent/SquadMemberComponent to fix "Cohesion" confusion.
         // We now rely on PlayerControlSystem and AISystem.
@@ -282,14 +283,9 @@ void Init()
         Signature sigCol;
         sigCol.set(gCoordinator.GetComponentType<TransformComponent>());
         sigCol.set(gCoordinator.GetComponentType<ColliderComponent>());
+		sigCol.set(gCoordinator.GetComponentType<FactionComponent>());
         gCoordinator.SetSystemSignature<CollisionSystem>(sigCol);
 
-        aiSystem = gCoordinator.RegisterSystem<AISystem>();
-        Signature sigAI;
-        sigAI.set(gCoordinator.GetComponentType<TransformComponent>());
-        sigAI.set(gCoordinator.GetComponentType<AIComponent>());
-        // aiSig.set(gCoordinator.GetComponentType<FactionComponent>()); // Optional safety
-        gCoordinator.SetSystemSignature<AISystem>(sigAI);
 
         squadSystem = gCoordinator.RegisterSystem<SquadSystem>(); // NEW
         {
@@ -332,9 +328,9 @@ void Init()
         gCoordinator.AddComponent(factory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
 
         // -- Stats & UI --
-        playerStats = gCoordinator.CreateEntity();
-        gCoordinator.AddComponent(playerStats, StatComponent{ 0, 100 });
-        gCoordinator.AddComponent(playerStats, UILabel{ 10, 6, "Score: 0", 1, 1, 1 });
+        playerGold = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(playerGold, GoldComponent{ 0 });
+        gCoordinator.AddComponent(playerGold, UILabel{ 10, 6, "Gold: 0", 1, 1, 1 });
 
         btnScore = gCoordinator.CreateEntity();
         gCoordinator.AddComponent(btnScore, UIButton{ 10, 6, 150, 40, "Add Score", 0.2f, 0.6f, 0.2f });
@@ -350,6 +346,8 @@ void Init()
 
         // 4. SPAWN ENEMIES
         SpawnEnemySquad(20.0f, {5, 0, 5}); // Use the new group spawner
+		SpawnEnemySquad(15.0f, {-10, 0, -10});
+		SpawnEnemySquad(10.0f, {15, 0, -15});
         SpawnPlayerSquad(100, { 0, 0, 0 });
 
         // 5. CAMERA SETUP (The Fix for Black Screen)
@@ -397,7 +395,6 @@ float mouseX, mouseY;
      wasRightPressed = isRightDown;
     unitSystem->Update(deltaTime);
 	collisionSystem->Update(deltaTime);
-	aiSystem->Update(deltaTime);
     squadSystem->Update(deltaTime);      
     unitSystem->Update(deltaTime);    
     animationSystem->Update(deltaTime);
@@ -418,17 +415,17 @@ float mouseX, mouseY;
         float offsetX = (rand() % 100) / 50.0f; 
         float offsetZ = (rand() % 100) / 50.0f;
 
-        SpawnPlayerUnit(worldCenter, UnitType::meleeGrunt);
+        SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::meleeGrunt);
     }
 	if (clickedID == btnScore)
     {
         // SIMPLE INTERACTION: Direct Modification
-        auto& stats = gCoordinator.GetComponent<StatComponent>(playerStats);
-        stats.score += 10;
+        auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
+        gold.gold += 10;
 
         // Update the Label too
-        auto& label = gCoordinator.GetComponent<UILabel>(playerStats);
-        label.text = "Score: " + std::to_string(stats.score);
+        auto& label = gCoordinator.GetComponent<UILabel>(playerGold);
+		label.text = "Gold: " + std::to_string(gold.gold);
     }
 
     if (clickedID == btnBuild)
