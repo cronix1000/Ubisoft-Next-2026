@@ -4,109 +4,186 @@
 #include "Components.h" 
 #include "FactionComponent.h"
 #include "ProjectileComponent.h"
+#include "UnitComponent.h" // Added to access cooldowns
 #include <vector>
 #include <set>
+#include <algorithm>
 
 extern Coordinator gCoordinator;
+
+// Helper struct to cache pointers
+struct ColliderWrapper {
+    Entity entity;
+    TransformComponent* transform;
+    ColliderComponent* collider;
+    StatComponent* stats;
+    FactionComponent* faction;
+    UnitComponent* unit;       
+    ProjectileComponent* proj; 
+};
 
 class CollisionSystem : public System
 {
 public:
     void Update(float dt)
     {
-        // Copy entities to vector for indexed O(N^2) access
-        auto entities = std::vector<Entity>(mEntities.begin(), mEntities.end());
+        std::vector<ColliderWrapper> colliders;
+        colliders.reserve(mEntities.size());
+
+        // 1. CACHE STEP
+        for (auto const& entity : mEntities)
+        {
+            // Basic Requirements
+            if (!gCoordinator.HasComponent<TransformComponent>(entity) ||
+                !gCoordinator.HasComponent<ColliderComponent>(entity) ||
+                !gCoordinator.HasComponent<StatComponent>(entity))
+            {
+                continue;
+            }
+
+            ColliderWrapper cw;
+            cw.entity = entity;
+            cw.transform = &gCoordinator.GetComponent<TransformComponent>(entity);
+            cw.collider = &gCoordinator.GetComponent<ColliderComponent>(entity);
+            cw.stats = &gCoordinator.GetComponent<StatComponent>(entity);
+            
+            // Faction (Optional)
+            if (gCoordinator.HasComponent<FactionComponent>(entity)) {
+                cw.faction = &gCoordinator.GetComponent<FactionComponent>(entity);
+            } else {
+                cw.faction = nullptr;
+            }
+
+            // Unit Component (For Cooldowns)
+            if (gCoordinator.HasComponent<UnitComponent>(entity)) {
+                cw.unit = &gCoordinator.GetComponent<UnitComponent>(entity);
+                // UPDATE TIMER HERE:
+                if (cw.unit->actionTimer > 0.0f) {
+                    cw.unit->actionTimer -= dt;
+                }
+            } else {
+                cw.unit = nullptr;
+            }
+
+            // Projectile Component (For one-shot logic)
+            if (gCoordinator.HasComponent<ProjectileComponent>(entity)) {
+                cw.proj = &gCoordinator.GetComponent<ProjectileComponent>(entity);
+            } else {
+                cw.proj = nullptr;
+            }
+
+            colliders.push_back(cw);
+        }
+
+        // 2. SORT STEP (Sweep and Prune X-Axis)
+        std::sort(colliders.begin(), colliders.end(), 
+            [](const ColliderWrapper& a, const ColliderWrapper& b) {
+                return a.transform->Pos.x < b.transform->Pos.x;
+            });
+
         std::set<Entity> destroyedThisFrame;
 
-        for (size_t i = 0; i < entities.size(); ++i)
+        // 3. COLLISION LOOP
+        for (size_t i = 0; i < colliders.size(); ++i)
         {
-            Entity entityA = entities[i];
-            if (destroyedThisFrame.count(entityA)) continue;
+            if (destroyedThisFrame.count(colliders[i].entity)) continue;
 
-            for (size_t j = i + 1; j < entities.size(); ++j)
+            for (size_t j = i + 1; j < colliders.size(); ++j)
             {
-                Entity entityB = entities[j];
-                if (destroyedThisFrame.count(entityB)) continue;
+                if (destroyedThisFrame.count(colliders[j].entity)) continue;
 
-                // 1. Physical Collision Check
-                if (CheckCollision(entityA, entityB))
+                // X-Axis Early Exit
+                float xDiff = colliders[j].transform->Pos.x - colliders[i].transform->Pos.x;
+                float radiusSum = colliders[i].collider->radius + colliders[j].collider->radius;
+                
+                if (xDiff > radiusSum) break; 
+
+                if (CheckCollision(colliders[i], colliders[j], radiusSum))
                 {
-                    ResolveCollision(entityA, entityB, destroyedThisFrame);
-
-                    // If A died in this interaction, stop checking A against others
-                    if (destroyedThisFrame.count(entityA)) break;
+                    ResolveCollision(colliders[i], colliders[j], destroyedThisFrame);
+                    if (destroyedThisFrame.count(colliders[i].entity)) break;
                 }
             }
         }
     }
 
 private:
-    bool CheckCollision(Entity a, Entity b)
+    bool CheckCollision(const ColliderWrapper& a, const ColliderWrapper& b, float radiusSum)
     {
-        auto& transA = gCoordinator.GetComponent<TransformComponent>(a);
-        auto& colA   = gCoordinator.GetComponent<ColliderComponent>(a);
-        auto& transB = gCoordinator.GetComponent<TransformComponent>(b);
-        auto& colB   = gCoordinator.GetComponent<ColliderComponent>(b);
+        float dy = a.transform->Pos.y - b.transform->Pos.y;
+        float dz = a.transform->Pos.z - b.transform->Pos.z;
+        float dx = a.transform->Pos.x - b.transform->Pos.x; // Recalculate full delta
 
-        float dx = transA.Pos.x - transB.Pos.x;
-        float dy = transA.Pos.y - transB.Pos.y;
-        float dz = transA.Pos.z - transB.Pos.z;
+        if (abs(dz) > radiusSum) return false; // Quick Z Check
 
         float distSq = dx * dx + dy * dy + dz * dz;
-        float radiiSum = colA.radius + colB.radius;
-
-        return distSq < (radiiSum * radiiSum);
+        return distSq < (radiusSum * radiusSum);
     }
 
-    void ResolveCollision(Entity a, Entity b, std::set<Entity>& destroyedSet)
+    void ResolveCollision(ColliderWrapper& a, ColliderWrapper& b, std::set<Entity>& destroyedSet)
     {
-        // 1. Ensure both have Stats (Health/Damage)
-        if (!gCoordinator.HasComponent<StatComponent>(a) ||
-            !gCoordinator.HasComponent<StatComponent>(b)) return;
-
-        auto& statA = gCoordinator.GetComponent<StatComponent>(a);
-        auto& statB = gCoordinator.GetComponent<StatComponent>(b);
-
-
-        if (gCoordinator.HasComponent<FactionComponent>(a) &&
-            gCoordinator.HasComponent<FactionComponent>(b))
-        {
-            auto& factionA = gCoordinator.GetComponent<FactionComponent>(a);
-            auto& factionB = gCoordinator.GetComponent<FactionComponent>(b);
-
-            if (factionA.teamId == factionB.teamId) return;
+        // 1. Team Check (Friendly Fire prevention)
+        if (a.faction && b.faction) {
+            if (a.faction->teamId == b.faction->teamId) return;
         }
 
-        // 3. Apply Damage (Mutual Exchange)
-        ApplyDamage(a, statA, statB.damage, destroyedSet);
-        if (destroyedSet.count(a)) {
-            // If A died, stop processing A
+        // 2. Projectile Logic (One-shot)
+        // If A is a projectile, it hits B, deals damage, and dies.
+        if (a.proj) {
+            ApplyDamage(b.entity, *b.stats, a.stats->damage, destroyedSet);
+            DestroyEntity(a.entity, destroyedSet);
+            return; // A is dead, stop interaction
         }
-        ApplyDamage(b, statB, statA.damage, destroyedSet);
+        // If B is a projectile, it hits A, deals damage, and dies.
+        if (b.proj) {
+            ApplyDamage(a.entity, *a.stats, b.stats->damage, destroyedSet);
+            DestroyEntity(b.entity, destroyedSet);
+            return; // B is dead, stop interaction
+        }
 
-        // 4. Handle Projectile Self-Destruction
-        HandleProjectileBehavior(a, destroyedSet);
-        HandleProjectileBehavior(b, destroyedSet);
+        // 3. Unit Combat Logic (Melee / Contact)
+        
+        // B attacks A?
+        bool bCanAttack = true;
+        if (b.unit) {
+            // If it's a unit, it must wait for cooldown
+            if (b.unit->actionTimer > 0.0f) bCanAttack = false;
+        }
+        
+        if (bCanAttack) {
+            ApplyDamage(a.entity, *a.stats, b.stats->damage, destroyedSet);
+            // Reset B's Cooldown
+            if (b.unit) {
+                // Safety: If attackCooldown is 0 (default), set a minimum (0.5s) to prevent insta-kill
+                float cooldown = (b.unit->attackCooldown > 0.0f) ? b.unit->attackCooldown : 1.0f;
+                b.unit->actionTimer = cooldown;
+            }
+        }
+
+        // A attacks B? (Only if A is still alive)
+        if (destroyedSet.count(a.entity)) return;
+
+        bool aCanAttack = true;
+        if (a.unit) {
+            if (a.unit->actionTimer > 0.0f) aCanAttack = false;
+        }
+
+        if (aCanAttack) {
+            ApplyDamage(b.entity, *b.stats, a.stats->damage, destroyedSet);
+            // Reset A's Cooldown
+            if (a.unit) {
+                float cooldown = (a.unit->attackCooldown > 0.0f) ? a.unit->attackCooldown : 1.0f;
+                a.unit->actionTimer = cooldown;
+            }
+        }
     }
 
     void ApplyDamage(Entity e, StatComponent& stats, int damageAmount, std::set<Entity>& destroyedSet)
     {
-        if (destroyedSet.count(e)) return; // Already dead
-
-        stats.health -= damageAmount;
-
-        if (stats.health <= 0)
-        {
-            DestroyEntity(e, destroyedSet);
-        }
-    }
-
-    void HandleProjectileBehavior(Entity e, std::set<Entity>& destroyedSet)
-    {
         if (destroyedSet.count(e)) return;
 
-        // If it is a projectile, it dies on ANY valid collision
-        if (gCoordinator.HasComponent<ProjectileComponent>(e))
+        stats.health -= damageAmount;
+        if (stats.health <= 0)
         {
             DestroyEntity(e, destroyedSet);
         }
@@ -114,6 +191,28 @@ private:
 
     void DestroyEntity(Entity e, std::set<Entity>& destroyedSet)
     {
+        if (destroyedSet.count(e)) return;
+        if (gCoordinator.HasComponent<OccupyingDepositComponent>(e)) {
+                auto& link = gCoordinator.GetComponent<OccupyingDepositComponent>(e);
+                
+                // Check if the gold chunk still exists (it should, but safety first)
+                // Note: We use a simple check or try/catch pattern if available, 
+                // but in this ECS, assuming the entity ID is valid is standard.
+                if (gCoordinator.HasComponent<GoldDepositComponent>(link.goldChunkEntity)) {
+                    auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(link.goldChunkEntity);
+                    deposit.occupied = false; 
+                    
+                    // Optional: Visual Feedback (Tint it back to Gold to show it's active)
+                    if (gCoordinator.HasComponent<MeshComponent>(link.goldChunkEntity)) {
+                        auto& meshComp = gCoordinator.GetComponent<MeshComponent>(link.goldChunkEntity);
+                        // Reset to Gold Color (R=1.0, G=0.8, B=0.0)
+                        for (auto& tri : meshComp.mesh.tris) {
+                            tri.r = 1.0f; tri.g = 0.8f; tri.b = 0.0f;
+                        }
+                    }
+                }
+            }
+
         gCoordinator.DestroyEntity(e);
         destroyedSet.insert(e);
     }

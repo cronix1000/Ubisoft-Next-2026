@@ -10,6 +10,7 @@ extern Coordinator gCoordinator;
 class UIButtonSystem : public System
 {
 public:
+
     Entity UpdateInput(float mouseX, float mouseY, bool isMousePressed)
     {
         Entity clickedEntity = static_cast<Entity>(-1);

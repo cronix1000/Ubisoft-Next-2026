@@ -30,6 +30,11 @@
 #include "ProjectileComponent.h"
 #include "UnitType.h"
 #include "GoldComponent.h"
+#include "ProductionSystem.h"
+#include "ResourceSystem.h"
+#include "GoldDepositComponent.h"
+#include "UIProgressBarSystem.h"
+#include "UIProgressBar.h"
 
 using namespace Engine3D;
 
@@ -51,8 +56,12 @@ std::shared_ptr<CollisionSystem> collisionSystem;
 std::shared_ptr<Render3DSystem> render3D;
 std::shared_ptr<UIRenderSystem> renderUI;
 std::shared_ptr<UIButtonSystem> renderButtonUI;
+std::shared_ptr<UIProgressBarSystem> progressBarSystem;
 std::shared_ptr<PlayerControlSystem> playerSystem;
 std::shared_ptr<ProjectileSystem> projectileSystem;
+
+std::shared_ptr<ResourceSystem> resourceSystem;
+std::shared_ptr<ProductionSystem> productionSystem;
 //------------------------------------------------------------------------
 // GLOBAL STATE VARIABLES
 //------------------------------------------------------------------------
@@ -259,6 +268,7 @@ void Init()
         gCoordinator.RegisterComponent<MeshComponent>();
         gCoordinator.RegisterComponent<UILabel>();
         gCoordinator.RegisterComponent<UIButton>();
+		gCoordinator.RegisterComponent<UIProgressBar>();
         gCoordinator.RegisterComponent<StatComponent>();
         gCoordinator.RegisterComponent<BuilderComponent>();
 
@@ -272,6 +282,9 @@ void Init()
         gCoordinator.RegisterComponent<SquadMemberComponent>(); 
         gCoordinator.RegisterComponent<ArcAnimComponent>();
 		gCoordinator.RegisterComponent<GoldComponent>();
+
+		gCoordinator.RegisterComponent<GoldDepositComponent>();
+        gCoordinator.RegisterComponent<FactoryComponent>();
 
         // NOTE: We removed SquadComponent/SquadMemberComponent to fix "Cohesion" confusion.
         // We now rely on PlayerControlSystem and AISystem.
@@ -337,6 +350,28 @@ void Init()
             sig.set(gCoordinator.GetComponentType<TransformComponent>());
             gCoordinator.SetSystemSignature<ProjectileSystem>(sig);
         }
+
+        resourceSystem = gCoordinator.RegisterSystem<ResourceSystem>();
+        {
+            Signature sig;
+            sig.set(gCoordinator.GetComponentType<TransformComponent>());
+            sig.set(gCoordinator.GetComponentType<GoldDepositComponent>());
+            gCoordinator.SetSystemSignature<ResourceSystem>(sig);
+        }
+
+		progressBarSystem = gCoordinator.RegisterSystem<UIProgressBarSystem>();
+		{
+			Signature sig;
+			sig.set(gCoordinator.GetComponentType<UIProgressBar>());
+			gCoordinator.SetSystemSignature<UIProgressBarSystem>(sig);
+		}
+
+        productionSystem = gCoordinator.RegisterSystem<ProductionSystem>();
+        {
+            Signature sig;
+            sig.set(gCoordinator.GetComponentType<FactoryComponent>());
+            gCoordinator.SetSystemSignature<ProductionSystem>(sig);
+        }
         // 3. CREATE ENTITIES
 
         // -- Ground --
@@ -351,6 +386,21 @@ void Init()
         gCoordinator.AddComponent(factory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
 
         // -- Stats & UI --
+for (int i = 0; i < 20; i++) {
+            Entity goldChunk = gCoordinator.CreateEntity();
+            // Random Pos
+            float gx = (rand() % 80 - 40) * 1.0f;
+            float gz = (rand() % 80 - 40) * 1.0f;
+            
+            gCoordinator.AddComponent(goldChunk, TransformComponent{ {gx, 0, gz} });
+            
+            // Yellow Cube
+            mesh chunkMesh = ShapeBuilder::CreateCube(1.0f, 0.8f, 0.0f, false);
+            gCoordinator.AddComponent(goldChunk, MeshComponent{ chunkMesh });
+            gCoordinator.AddComponent(goldChunk, ColliderComponent{ 1.0f });
+            gCoordinator.AddComponent(goldChunk, GoldDepositComponent{});
+        }
+
         playerGold = gCoordinator.CreateEntity();
         gCoordinator.AddComponent(playerGold, GoldComponent{ 0 });
         gCoordinator.AddComponent(playerGold, UILabel{ 10, 6, "Gold: 0", 1, 1, 1 });
@@ -442,144 +492,164 @@ void Update(const float deltaTime)
     float screenCenterX = (float)APP_VIRTUAL_WIDTH / 2.0f;
     float screenCenterY = (float)APP_VIRTUAL_HEIGHT / 2.0f;
 
-    // Convert to World Position
+    // 1. INPUT HANDLING
     vec3d worldCenter = GetIsoWorldCoordinates(screenCenterX, screenCenterY);
-float mouseX, mouseY;
+    float mouseX, mouseY;
     App::GetMousePos(mouseX, mouseY);
     float mouseYUI = APP_VIRTUAL_HEIGHT - mouseY;
-     isMousePressed = App::IsMousePressed(GLUT_LEFT_BUTTON);
-     isRightPressed = App::IsMousePressed(GLUT_RIGHT_BUTTON);
-     bool isRightDown = App::IsMousePressed(GLUT_RIGHT_BUTTON);
 
-     // "Click" happens only on the frame the button goes DOWN
-     bool isRightClicked = isRightDown && !wasRightPressed;
+    isMousePressed = App::IsMousePressed(GLUT_LEFT_BUTTON);
+    
+   
+    bool isRightDown = App::IsMousePressed(GLUT_RIGHT_BUTTON);
+    bool isRightClicked = isRightDown && !wasRightPressed; 
+    wasRightPressed = isRightDown;                         
+    isRightPressed = isRightDown;                         
+ 
 
-     // Update "Was" for next frame
-     wasRightPressed = isRightDown;
+    // Update Systems
     unitSystem->Update(deltaTime);
-	collisionSystem->Update(deltaTime);
-    squadSystem->Update(deltaTime);      
-    unitSystem->Update(deltaTime);    
+    collisionSystem->Update(deltaTime);
+    squadSystem->Update(deltaTime);       
     animationSystem->Update(deltaTime);
     projectileSystem->Update(deltaTime);
+    
+    // resourceSystem->Update(deltaTime);
+    
+    // Updates gold production
+    productionSystem->Update(deltaTime / 1000.0f, playerGold);
 
-	// Get gold before processing buttons
-	auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
-	auto& goldLabel = gCoordinator.GetComponent<UILabel>(playerGold);
-	
-	// Update button disabled states based on gold
-	auto& btnMeleeUI = gCoordinator.GetComponent<UIButton>(btnSpawnMelee);
-	auto& btnRangedUI = gCoordinator.GetComponent<UIButton>(btnSpawnRanged);
-	auto& btnCatapultUI = gCoordinator.GetComponent<UIButton>(btnSpawnCatapult);
-	
-	btnMeleeUI.isDisabled = (gold.gold < 10);
-	btnRangedUI.isDisabled = (gold.gold < 20);
-	btnCatapultUI.isDisabled = (gold.gold < 50);
+    // UI Updates
+    auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
+    auto& goldLabel = gCoordinator.GetComponent<UILabel>(playerGold);
+    
+    auto& btnMeleeUI = gCoordinator.GetComponent<UIButton>(btnSpawnMelee);
+    auto& btnRangedUI = gCoordinator.GetComponent<UIButton>(btnSpawnRanged);
+    auto& btnCatapultUI = gCoordinator.GetComponent<UIButton>(btnSpawnCatapult);
+    
+    btnMeleeUI.isDisabled = (gold.gold < 10);
+    btnRangedUI.isDisabled = (gold.gold < 20);
+    btnCatapultUI.isDisabled = (gold.gold < 50);
 
-	// 1. HANDLE UI BUTTON CLICKS
-	Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseYUI, isMousePressed);
-	
-	if (clickedID == btnSpawnUnit)
+    // 2. HANDLE UI CLICKS (Left Click)
+    Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseYUI, isMousePressed);
+    
+    if (clickedID == btnSpawnUnit)
     {
-        // SPAWN LOGIC
         Entity unit = gCoordinator.CreateEntity();
-        
-        // Use our helper to scale the warrior down (0.3 scale)
         mesh warriorMesh = CreateScaledWarrior(0.3f); 
-        
-        // Spawn at a default location (e.g., near the first factory)
-        // Adding a small random offset so they don't spawn inside each other
-        float offsetX = (rand() % 100) / 50.0f; 
-        float offsetZ = (rand() % 100) / 50.0f;
-
         SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::meleeGrunt);
     }
     
-    // Melee unit - costs 10 gold
-    if (clickedID == btnSpawnMelee)
-    {
-        if (gold.gold >= 10)
-        {
-            SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::meleeGrunt);
-            gold.gold -= 10;
-            goldLabel.text = "Gold: " + std::to_string(gold.gold);
-        }
+    if (clickedID == btnSpawnMelee && gold.gold >= 10) {
+        SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::meleeGrunt);
+        gold.gold -= 10;
+        goldLabel.text = "Gold: " + std::to_string(gold.gold);
     }
     
-    // Ranged unit - costs 20 gold
-    if (clickedID == btnSpawnRanged)
-    {
-        if (gold.gold >= 20)
-        {
-            SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::Ranged);
-            gold.gold -= 20;
-            goldLabel.text = "Gold: " + std::to_string(gold.gold);
-        }
+    if (clickedID == btnSpawnRanged && gold.gold >= 20) {
+        SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::Ranged);
+        gold.gold -= 20;
+        goldLabel.text = "Gold: " + std::to_string(gold.gold);
     }
     
-    // Catapult unit - costs 50 gold
-    if (clickedID == btnSpawnCatapult)
-    {
-        if (gold.gold >= 50)
-        {
-            SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::Catapult);
-            gold.gold -= 50;
-            goldLabel.text = "Gold: " + std::to_string(gold.gold);
-        }
-    }
-	if (clickedID == btnScore)
-    {
-        // SIMPLE INTERACTION: Direct Modification
-        gold.gold += 10;
-		goldLabel.text = "Gold: " + std::to_string(gold.gold);
+    if (clickedID == btnSpawnCatapult && gold.gold >= 50) {
+        SpawnPlayerUnit(worldCenter, UnitComponent::UnitType::Catapult);
+        gold.gold -= 50;
+        goldLabel.text = "Gold: " + std::to_string(gold.gold);
     }
 
-    if (clickedID == btnBuild)
-    {
-        // MODE INTERACTION: Enter "Building Mode"
-        // We add the component to the cursor entity
+    if (clickedID == btnScore) {
+        gold.gold += 10;
+        goldLabel.text = "Gold: " + std::to_string(gold.gold);
+    }
+
+    if (clickedID == btnBuild) {
+        // Enter Building Mode
         gCoordinator.AddComponent(mouseCursor, BuilderComponent{ 1, true });
-        
-        // Optional: Add a Ghost Mesh to the cursor so we see what we are building
         mesh factoryGhost = ShapeBuilder::CreateFactoryUnit();
         gCoordinator.AddComponent(mouseCursor, MeshComponent{ factoryGhost });
     }
 
-    // 2. HANDLE BUILDING LOGIC (The "Mode")
+    // 3. HANDLE BUILDING LOGIC (Building Mode)
     if (gCoordinator.HasComponent<BuilderComponent>(mouseCursor))
     {
-        // We are in Building Mode!
-        
-        // A. Move Ghost to Mouse Position
+        // A. Move Ghost
         vec3d worldPos = GetIsoWorldCoordinates(mouseX, mouseY);
         auto& trans = gCoordinator.GetComponent<TransformComponent>(mouseCursor);
         trans.Pos.x = worldPos.x;
         trans.Pos.z = worldPos.z;
-        trans.Pos.y = 0.0f; // Snap to floor
+        trans.Pos.y = 0.0f; 
 
-        // B. Check for Placement Click (Right Click to Place)
-        if (isRightPressed)
+        // B. Check Validity (Gold Chunk)
+        bool canBuild = false;
+        Entity targetGoldChunk = -1;
+
+        for (auto const& entity : resourceSystem->mEntities) {
+            auto& goldTrans = gCoordinator.GetComponent<TransformComponent>(entity);
+            auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(entity);
+
+            if (deposit.occupied) continue;
+
+            float dist = Engine3D::Vector_Distance(trans.Pos, goldTrans.Pos);
+            if (dist < 2.0f) {
+                canBuild = true;
+                targetGoldChunk = entity;
+                break;
+            }
+        }
+
+        // C. Update Visuals
+        auto& ghostMeshComp = gCoordinator.GetComponent<MeshComponent>(mouseCursor);
+        ghostMeshComp.mesh = ShapeBuilder::CreateFactoryUnit(); 
+
+        if (canBuild) {
+            // Normal color indicates valid
+        } else {
+            // Blue Tint indicates invalid
+            ShapeBuilder::TintMesh(ghostMeshComp.mesh, 0.2f, 0.2f, 1.0f);
+        }
+
+        // D. Place Factory (Right Click)
+        // FIX: Use isRightClicked here so we don't accidentally build when clicking UI
+        if (isMousePressed && canBuild)
         {
-            // Spawn Real Entity
             Entity newFactory = gCoordinator.CreateEntity();
             mesh factoryMesh = ShapeBuilder::CreateFactoryUnit();
             gCoordinator.AddComponent(newFactory, TransformComponent{ {worldPos.x, 0, worldPos.z} });
             gCoordinator.AddComponent(newFactory, MeshComponent{ factoryMesh });
+            gCoordinator.AddComponent(newFactory, FactoryComponent{}); 
+
+            // Add Health/Faction so enemies can attack it
+            gCoordinator.AddComponent(newFactory, FactionComponent{ 0 }); // Team 0
+            gCoordinator.AddComponent(newFactory, StatComponent{ 1000, 1000, 0, 0 }); // Health
+            gCoordinator.AddComponent(newFactory, ColliderComponent{ 1.0f });
+
+            // FIX: Removed UIProgressBar due to syntax error and missing definition
+            gCoordinator.AddComponent(newFactory, UIProgressBar{  // Health Bar
+				worldPos.x, worldPos.z, 10, 5,
+				0.0f, 1.0f, 0.0f, // Green
+				0 // progress
+			}); 
+
+            if (targetGoldChunk != -1) {
+                auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(targetGoldChunk);
+                deposit.occupied = true;
+                deposit.linkedFactory = newFactory;
+            }
 
             // Exit Building Mode
             gCoordinator.RemoveComponent<BuilderComponent>(mouseCursor);
-            gCoordinator.RemoveComponent<MeshComponent>(mouseCursor); // Remove ghost mesh
+            gCoordinator.RemoveComponent<MeshComponent>(mouseCursor); 
         }
     }
 
+    // 4. PLAYER MOVEMENT (Camera follow)
     if (!gCoordinator.HasComponent<BuilderComponent>(mouseCursor))
     {
-     playerSystem->Update(deltaTime);  
-	}
+        playerSystem->Update(deltaTime);  
+    }
 
-
-
-    // Update Position (Only if raycast hit something valid)
     if (worldCenter.x != 0.0f || worldCenter.z != 0.0f)
     {
         Entity playerLeader = playerUnit;
@@ -590,28 +660,24 @@ float mouseX, mouseY;
         }
     }
 
-
+    // 5. CAMERA CONTROLS
     float speed = playerSpeed * deltaTime / 1000.0f;
     if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
     if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
     if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
     if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
 
-
     if (vFocusPoint.z > MAP_LIMIT) vFocusPoint.z = MAP_LIMIT;
-    if (vFocusPoint.z < -MAP_LIMIT) vFocusPoint.z = -MAP_LIMIT; // Fixed: Check < -MAP_LIMIT
-
+    if (vFocusPoint.z < -MAP_LIMIT) vFocusPoint.z = -MAP_LIMIT; 
     if (vFocusPoint.x > MAP_LIMIT) vFocusPoint.x = MAP_LIMIT;
     if (vFocusPoint.x < -MAP_LIMIT) vFocusPoint.x = -MAP_LIMIT;
-    // Recalculate Camera
+
     mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
     mat4x4 matYaw = Matrix_MakeRotationY(fYaw);
     mat4x4 matRot = Matrix_MultiplyMatrix(matPitch, matYaw);
-    vec3d vOffset = { 0.0f, 0.0f, -20.0f }; // Distance
+    vec3d vOffset = { 0.0f, 0.0f, -20.0f }; 
     vOffset = Matrix_MultiplyVector(matRot, vOffset);
     vCamera = Vector_Add(vFocusPoint, vOffset);
-
-
 }
 //------------------------------------------------------------------------
 // Display calls here 

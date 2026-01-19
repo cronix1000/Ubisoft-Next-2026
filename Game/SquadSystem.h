@@ -247,7 +247,7 @@ public:
                 }
 
                 // Check if it's a factory with collider
-                if (gCoordinator.HasComponent<BuilderComponent>(targetEntity) &&
+                if (gCoordinator.HasComponent<FactoryComponent>(targetEntity) &&
                     gCoordinator.HasComponent<ColliderComponent>(targetEntity))
                 {
                     return true;

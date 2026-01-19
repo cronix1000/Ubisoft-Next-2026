@@ -19,7 +19,13 @@ namespace ShapeBuilder
             target.tris.push_back(tri);
         }
     }
-
+    void TintMesh(mesh& m, float r, float g, float b) {
+        for (auto& tri : m.tris) {
+            tri.r = r;
+            tri.g = g;
+            tri.b = b;
+        }
+    }
     void AddQuad(mesh& m, vec3d bl, vec3d br, vec3d tr, vec3d tl, float r, float g, float b)
     {
         m.tris.push_back({ bl, br, tr, r, g, b });
@@ -177,6 +183,19 @@ namespace ShapeBuilder
         mesh composite;
         AddMesh(composite, CreateCube(1, 0, 0), { 0,0,0 }, { 0.5f, 0.8f, 0.5f });
         AddMesh(composite, CreateCube(1, 0.8f, 0.6f), { 0.1f, 0.8f, 0.1f }, { 0.3f, 0.3f, 0.3f });
+        return composite;
+    }
+
+    mesh CreateTree() {
+        mesh composite;
+        // Trunk: Brown, slightly tall and thin
+        AddMesh(composite, CreateCube(0.55f, 0.27f, 0.07f), { 0.35f, 0.0f, 0.35f }, { 0.3f, 1.2f, 0.3f });
+        
+        // Leaves Base: Darker Green Pyramid
+        AddMesh(composite, CreatePyramid(0.0f, 0.5f, 0.0f), { 0.0f, 0.8f, 0.0f }, { 1.2f, 1.0f, 1.2f });
+        
+        // Leaves Top: Lighter Green Pyramid
+        AddMesh(composite, CreatePyramid(0.1f, 0.7f, 0.1f), { 0.15f, 1.4f, 0.15f }, { 0.9f, 0.9f, 0.9f });
         return composite;
     }
 
