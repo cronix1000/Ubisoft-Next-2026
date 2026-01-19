@@ -5,4 +5,5 @@ struct SquadComponent {
     vec3d currentTarget;    // Where the whole group is going
     float stateTimer;       // How long until we change orders?
     float radius;           // How spread out the squad is
+    float moveSpeed = 5.0f;        // How fast the squad moves
 };

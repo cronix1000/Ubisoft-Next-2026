@@ -16,17 +16,17 @@
 #include <freeglut_config.h>
 #include "BuilderComponent.h"
 #include "StatComponent.h"
-#include <freeglut_config.h>
 #include "UnitSystem.h"
 #include "SquadComponent.h"
 #include "FactionComponent.h"
 #include "SquadMemberComponent.h"
-#include "SquadSystem.h"
 #include "CollisionSystem.h"
 #include "AISystem.h"
 #include "PlayerControlSystem.h"
 #include "UnitComponent.h"
-
+#include "SquadSystem.h"           
+#include "AnimationSystem.h"      
+#include "ArcAnimComponent.h"      
 using namespace Engine3D;
 
 Coordinator gCoordinator;
@@ -35,8 +35,10 @@ Entity mouseCursor; // Holds our "Ghost" builder state
 Entity btnScore;
 Entity btnBuild;
 Entity btnSpawnUnit;
-std::shared_ptr<UnitSystem> unitSystem;
-std::shared_ptr<SquadSystem> squadSystem;
+Entity playerUnit;
+std::shared_ptr<SquadSystem> squadSystem;       
+std::shared_ptr<AnimationSystem> animationSystem;
+std::shared_ptr<UnitSystem> unitSystem; 
 std::shared_ptr<CollisionSystem> collisionSystem;
 std::shared_ptr<AISystem> aiSystem;
 std::shared_ptr<Render3DSystem> render3D;
@@ -55,6 +57,8 @@ float fYaw = 0.0f;
 float fTheta = 0.0f;
 bool isMousePressed;
 bool isRightPressed;
+bool wasRightPressed = false;
+
 
 vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
 {
@@ -135,10 +139,9 @@ void SpawnEnemySquad(float startX, float startZ)
         gCoordinator.AddComponent(soldier, TransformComponent{ {startX + offset.x, 0, startZ + offset.z} });
         gCoordinator.AddComponent(soldier, MeshComponent{ ShapeBuilder::CreateWarrior() });
         gCoordinator.AddComponent(soldier, FactionComponent{ 1 });
-        gCoordinator.AddComponent(soldier, AIComponent{ AIComponent::Type::Wander }); // Just tagging it as AI
-        
+        gCoordinator.AddComponent(soldier, AIComponent{ AIComponent::Type::Wander }); // Just tagging it as AI        
         // LINK TO SQUAD
-        gCoordinator.AddComponent(soldier, SquadMemberComponent{ squadEnt, offset });
+        gCoordinator.AddComponent(soldier, SquadMemberComponent{ squadEnt, {startX, 0, startZ} });
     }
 }
 
@@ -180,162 +183,174 @@ mesh CreateEnemyWarrior(float scale) {
 // Called before first update. Do any initial setup here.
 //------------------------------------------------------------------------
 void Init()
-{
-    gCoordinator.Init();
+    {
+        gCoordinator.Init();
 
-    gCoordinator.RegisterComponent<TransformComponent>();
-    gCoordinator.RegisterComponent<MeshComponent>();
-    gCoordinator.RegisterComponent<UILabel>();
-    gCoordinator.RegisterComponent<UIButton>();
-    gCoordinator.RegisterComponent<StatComponent>(); // Verified
-    gCoordinator.RegisterComponent<BuilderComponent>();
-	gCoordinator.RegisterComponent<UnitComponent>();
-	gCoordinator.RegisterComponent<SquadComponent>();
-	gCoordinator.RegisterComponent<SquadMemberComponent>();
-	gCoordinator.RegisterComponent<ColliderComponent>();
-	gCoordinator.RegisterComponent<ProjectileComponent>();
-	gCoordinator.RegisterComponent<AIComponent>();
-	gCoordinator.RegisterComponent<FactionComponent>();
+        // 1. REGISTER COMPONENTS
+        gCoordinator.RegisterComponent<TransformComponent>();
+        gCoordinator.RegisterComponent<MeshComponent>();
+        gCoordinator.RegisterComponent<UILabel>();
+        gCoordinator.RegisterComponent<UIButton>();
+        gCoordinator.RegisterComponent<StatComponent>();
+        gCoordinator.RegisterComponent<BuilderComponent>();
 
+        // NEW LOGIC COMPONENTS
+        gCoordinator.RegisterComponent<UnitComponent>();
+        gCoordinator.RegisterComponent<FactionComponent>();
+        gCoordinator.RegisterComponent<AIComponent>();
+        gCoordinator.RegisterComponent<ColliderComponent>();
+        gCoordinator.RegisterComponent<ProjectileComponent>();
+        gCoordinator.RegisterComponent<SquadComponent>();       
+        gCoordinator.RegisterComponent<SquadMemberComponent>(); 
+        gCoordinator.RegisterComponent<ArcAnimComponent>();
 
-    // 1. Setup 3D System
-    render3D = gCoordinator.RegisterSystem<Render3DSystem>();
+        // NOTE: We removed SquadComponent/SquadMemberComponent to fix "Cohesion" confusion.
+        // We now rely on PlayerControlSystem and AISystem.
 
-    Signature sig3D;
-    sig3D.set(gCoordinator.GetComponentType<TransformComponent>());
-    sig3D.set(gCoordinator.GetComponentType<MeshComponent>());
-    gCoordinator.SetSystemSignature<Render3DSystem>(sig3D);
+        // 2. SETUP SYSTEMS
+        render3D = gCoordinator.RegisterSystem<Render3DSystem>();
+        Signature sig3D;
+        sig3D.set(gCoordinator.GetComponentType<TransformComponent>());
+        sig3D.set(gCoordinator.GetComponentType<MeshComponent>());
+        gCoordinator.SetSystemSignature<Render3DSystem>(sig3D);
 
-    // 2. Setup UI System
-    renderUI = gCoordinator.RegisterSystem<UIRenderSystem>();
-    Signature sigUI;
-    sigUI.set(gCoordinator.GetComponentType<UILabel>());
-    gCoordinator.SetSystemSignature<UIRenderSystem>(sigUI); // Don't forget to set signature!
+        renderUI = gCoordinator.RegisterSystem<UIRenderSystem>();
+        Signature sigUI;
+        sigUI.set(gCoordinator.GetComponentType<UILabel>());
+        gCoordinator.SetSystemSignature<UIRenderSystem>(sigUI);
 
-    // 3. Setup Button System
-    renderButtonUI = gCoordinator.RegisterSystem<UIButtonSystem>();
-    Signature sigBtton;
-    sigBtton.set(gCoordinator.GetComponentType<UIButton>());
-    gCoordinator.SetSystemSignature<UIButtonSystem>(sigBtton);
+        renderButtonUI = gCoordinator.RegisterSystem<UIButtonSystem>();
+        Signature sigBtton;
+        sigBtton.set(gCoordinator.GetComponentType<UIButton>());
+        gCoordinator.SetSystemSignature<UIButtonSystem>(sigBtton);
 
-    // 3. Setup Button System
-	unitSystem = gCoordinator.RegisterSystem<UnitSystem>();
-    Signature unitSig;
-	unitSig.set(gCoordinator.GetComponentType<TransformComponent>());
-unitSig.set(gCoordinator.GetComponentType<UnitComponent>());
-    gCoordinator.SetSystemSignature<UnitSystem>(unitSig);
+        unitSystem = gCoordinator.RegisterSystem<UnitSystem>();
+        Signature sigUnit;
+        sigUnit.set(gCoordinator.GetComponentType<TransformComponent>());
+        sigUnit.set(gCoordinator.GetComponentType<UnitComponent>());
+        gCoordinator.SetSystemSignature<UnitSystem>(sigUnit);
 
+        collisionSystem = gCoordinator.RegisterSystem<CollisionSystem>();
+        Signature sigCol;
+        sigCol.set(gCoordinator.GetComponentType<TransformComponent>());
+        sigCol.set(gCoordinator.GetComponentType<ColliderComponent>());
+        gCoordinator.SetSystemSignature<CollisionSystem>(sigCol);
 
-	// 4. Setup Squad System
-	squadSystem = gCoordinator.RegisterSystem<SquadSystem>();
-	Signature squadSig;
-	squadSig.set(gCoordinator.GetComponentType<TransformComponent>());
-	squadSig.set(gCoordinator.GetComponentType<SquadComponent>());
-	gCoordinator.SetSystemSignature<SquadSystem>(squadSig);
+        aiSystem = gCoordinator.RegisterSystem<AISystem>();
+        Signature sigAI;
+        sigAI.set(gCoordinator.GetComponentType<TransformComponent>());
+        sigAI.set(gCoordinator.GetComponentType<AIComponent>());
+        // aiSig.set(gCoordinator.GetComponentType<FactionComponent>()); // Optional safety
+        gCoordinator.SetSystemSignature<AISystem>(sigAI);
 
-	// 5. Setup Collision System
-	collisionSystem = gCoordinator.RegisterSystem<CollisionSystem>();
-	Signature collisionSig;
-	collisionSig.set(gCoordinator.GetComponentType<TransformComponent>());
-	collisionSig.set(gCoordinator.GetComponentType<ColliderComponent>());
-	collisionSig.set(gCoordinator.GetComponentType<ProjectileComponent>());
-	gCoordinator.SetSystemSignature<CollisionSystem>(collisionSig);
+        squadSystem = gCoordinator.RegisterSystem<SquadSystem>(); // NEW
+        {
+            Signature sig;
+            sig.set(gCoordinator.GetComponentType<TransformComponent>());
+            // SquadSystem filters internally, so Transform is the minimum
+            gCoordinator.SetSystemSignature<SquadSystem>(sig);
+        }
+        playerSystem = gCoordinator.RegisterSystem<PlayerControlSystem>();
+        Signature sigPlayer;
+        sigPlayer.set(gCoordinator.GetComponentType<UnitComponent>());
+        gCoordinator.SetSystemSignature<PlayerControlSystem>(sigPlayer);
 
-	// 6. Setup AI System
-	aiSystem = gCoordinator.RegisterSystem<AISystem>();
-	Signature aiSig;
-	aiSig.set(gCoordinator.GetComponentType<TransformComponent>());
-	aiSig.set(gCoordinator.GetComponentType<AIComponent>());
-	aiSig.set(gCoordinator.GetComponentType<FactionComponent>());
-	gCoordinator.SetSystemSignature<AISystem>(aiSig);
+        animationSystem = gCoordinator.RegisterSystem<AnimationSystem>(); // NEW
+        {
+            Signature sig;
+            sig.set(gCoordinator.GetComponentType<ArcAnimComponent>());
+            gCoordinator.SetSystemSignature<AnimationSystem>(sig);
+        }
 
+        // 3. CREATE ENTITIES
 
-    // --- ENTITIES ---
+        // -- Ground --
+        Entity ground = gCoordinator.CreateEntity();
+        mesh groundMesh = ShapeBuilder::CreatePlane(500.0f, 0.2f, 0.5f, 0.2f); // Large plane
+        gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} });
+        gCoordinator.AddComponent(ground, MeshComponent{ groundMesh });
 
-    Entity ground = gCoordinator.CreateEntity();
-    mesh groundMesh = ShapeBuilder::CreatePlane(150.0f, 0.2f, 0.5f, 0.2f);
-    gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} }); 
-    gCoordinator.AddComponent(ground, MeshComponent{ groundMesh });
+        // -- Player Unit (Commandable) --
+        Entity warrior = gCoordinator.CreateEntity();
+        mesh warriorMesh = ShapeBuilder::CreateWarrior();
+        gCoordinator.AddComponent(warrior, TransformComponent{ {0, 0, 0} });
+        gCoordinator.AddComponent(warrior, MeshComponent{ warriorMesh });
 
-    // UNITS
-    Entity factory = gCoordinator.CreateEntity();
-    mesh factoryMesh = ShapeBuilder::CreateFactoryUnit();
-    gCoordinator.AddComponent(factory, TransformComponent{ {5, 0, 5} });
-    gCoordinator.AddComponent(factory, MeshComponent{ factoryMesh });
+        // FIX: Add UnitComponent so PlayerControlSystem can control it!
+        // targetPos={0,0,0}, isMoving=false, speed=10.0f, isSelected=true
+        gCoordinator.AddComponent(warrior, UnitComponent{ {0,0,0}, false, 10.0f, true });
+        gCoordinator.AddComponent(warrior, FactionComponent{ 0 }); // Team 0 = Player
 
-    Entity factory2 = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(factory2, TransformComponent{ {5, 0, 10} });
-    gCoordinator.AddComponent(factory2, MeshComponent{ factoryMesh });
+        // -- Buildings --
+        Entity factory = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(factory, TransformComponent{ {5, 0, 5} });
+        gCoordinator.AddComponent(factory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
 
-    Entity factory3 = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(factory3, TransformComponent{ {6, 0, 10} });
-    gCoordinator.AddComponent(factory3, MeshComponent{ factoryMesh });
+        // -- Stats & UI --
+        playerStats = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(playerStats, StatComponent{ 0, 100 });
+        gCoordinator.AddComponent(playerStats, UILabel{ 10, 6, "Score: 0", 1, 1, 1 });
 
-    Entity warrior = gCoordinator.CreateEntity();
-    mesh warriorMesh = ShapeBuilder::CreateWarrior();
-    gCoordinator.AddComponent(warrior, TransformComponent{ {1, 0, 3} });
-    gCoordinator.AddComponent(warrior, MeshComponent{ warriorMesh });
+        btnScore = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(btnScore, UIButton{ 10, 6, 150, 40, "Add Score", 0.2f, 0.6f, 0.2f });
 
-	playerSystem = gCoordinator.RegisterSystem<PlayerControlSystem>();
-    Signature sigPlayer;
-    sigPlayer.set(gCoordinator.GetComponentType<UnitComponent>());
-    // Add a 'PlayerFaction' component check here if you want to filter strictly
-    gCoordinator.SetSystemSignature<PlayerControlSystem>(sigPlayer);
+        btnBuild = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(btnBuild, UIButton{ 50, 100, 150, 40, "Build Factory", 0.2f, 0.2f, 0.8f });
 
-    // --- FIX STARTS HERE ---
-    // We must initialize the GLOBAL 'playerStats' entity, not a local 'scoreLabel'
-    playerStats = gCoordinator.CreateEntity();
+        btnSpawnUnit = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(btnSpawnUnit, UIButton{ 50, 150, 150, 40, "Spawn Unit", 0.7f, 0.2f, 0.2f });
 
-    // 1. Add StatComponent (So we can update score)
-    gCoordinator.AddComponent(playerStats, StatComponent{ 0, 100 });
+        mouseCursor = gCoordinator.CreateEntity();
+        gCoordinator.AddComponent(mouseCursor, TransformComponent{ {0,0,0} });
 
-    // 2. Add UILabel (So we can display it)
-    gCoordinator.AddComponent(playerStats, UILabel{ 10, 6, "Score: 0", 1, 1, 1 });
-    // --- FIX ENDS HERE ---
+        // 4. SPAWN ENEMIES
+        SpawnEnemyGroup(20.0f, 20.0f, 5); // Use the new group spawner
 
-    // SETUP MOUSE CURSOR
-    mouseCursor = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(mouseCursor, TransformComponent{ {0,0,0} });
+        // 5. CAMERA SETUP (The Fix for Black Screen)
+        float zoom = 15.0f;
+        float aspectRatio = (float)APP_VIRTUAL_WIDTH / (float)APP_VIRTUAL_HEIGHT;
+        matProj = Engine3D::Matrix_MakeOrthographic(zoom * aspectRatio, zoom, -500.0f, 5000.0f);
 
-    // SETUP UI BUTTONS
-    btnScore = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(btnScore, UIButton{ 10, 6, 150, 40, "Add Score", 0.2f, 0.6f, 0.2f });
+        fYaw = 0.785398f;
+        fTheta = 0.615472f;
+        vFocusPoint = { 0, 0, 0 };
 
-    btnBuild = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(btnBuild, UIButton{ 50, 100, 150, 40, "Build Factory", 0.2f, 0.2f, 0.8f });
+        // --- CALCULATE CAMERA POSITION ONCE ---
+        mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
+        mat4x4 matYaw = Matrix_MakeRotationY(fYaw);
+        mat4x4 matRot = Matrix_MultiplyMatrix(matPitch, matYaw);
+        vec3d vOffset = { 0.0f, 0.0f, -20.0f }; // -20 Distance
+        vOffset = Matrix_MultiplyVector(matRot, vOffset);
+        vCamera = Vector_Add(vFocusPoint, vOffset);
+        // --------------------------------------
 
-
-	btnSpawnUnit = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(btnSpawnUnit, UIButton{ 50, 150, 150, 40, "Spawn Unit", 0.7f, 0.2f, 0.2f });
-    
-
-	// Camera Setup
-    float zoom = 15.0f;
-    float aspectRatio = (float)APP_VIRTUAL_WIDTH / (float)APP_VIRTUAL_HEIGHT;
-    matProj = Engine3D::Matrix_MakeOrthographic(zoom * aspectRatio, zoom, -500.0f, 5000.0f);
-    fYaw = 0.785398f;
-    fTheta = 0.615472f;
-    vFocusPoint = { 0, 0, 0 };
-    isMousePressed = false;
-    isRightPressed = false;
-}
+        isMousePressed = false;
+        isRightPressed = false;
+    }
 //---------------------------------------------------------------------
 // Update your simulation here. 
 //------------------------------------------------------------------------
 void Update(const float deltaTime)
 {
 
-
 float mouseX, mouseY;
     App::GetMousePos(mouseX, mouseY);
     float mouseYUI = APP_VIRTUAL_HEIGHT - mouseY;
      isMousePressed = App::IsMousePressed(GLUT_LEFT_BUTTON);
      isRightPressed = App::IsMousePressed(GLUT_RIGHT_BUTTON);
+     bool isRightDown = App::IsMousePressed(GLUT_RIGHT_BUTTON);
 
+     // "Click" happens only on the frame the button goes DOWN
+     bool isRightClicked = isRightDown && !wasRightPressed;
+
+     // Update "Was" for next frame
+     wasRightPressed = isRightDown;
     unitSystem->Update(deltaTime);
 	collisionSystem->Update(deltaTime);
-	squadSystem->Update(deltaTime);
 	aiSystem->Update(deltaTime);
+    squadSystem->Update(deltaTime);      
+    unitSystem->Update(deltaTime);    
+    animationSystem->Update(deltaTime);
 
 	// 1. HANDLE UI BUTTON CLICKS
 	Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseYUI, isMousePressed);
@@ -409,6 +424,20 @@ float mouseX, mouseY;
     {
      playerSystem->Update(deltaTime);  
 	}
+
+    float speed = 20.0f * deltaTime / 1000.0f;
+    if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
+    if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
+    if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
+    if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
+
+    // Recalculate Camera
+    mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
+    mat4x4 matYaw = Matrix_MakeRotationY(fYaw);
+    mat4x4 matRot = Matrix_MultiplyMatrix(matPitch, matYaw);
+    vec3d vOffset = { 0.0f, 0.0f, -20.0f }; // Distance
+    vOffset = Matrix_MultiplyVector(matRot, vOffset);
+    vCamera = Vector_Add(vFocusPoint, vOffset);
 
 
 }

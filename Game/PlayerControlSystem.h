@@ -2,6 +2,8 @@
 #include "System.h"
 #include "Coordinator.h"
 #include "../ContestAPI/app.h" // Needed for App::Input
+#include "ThreeDVisualiser.h"
+#include "UnitComponent.h"
 
 extern Coordinator gCoordinator;
 

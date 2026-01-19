@@ -4,46 +4,62 @@
 #include "Components.h"
 #include "SquadComponent.h"
 #include "SquadMemberComponent.h"
+#include "TransformComponent.h"
+#include "UnitComponent.h"
+#include "ThreeDVisualiser.h"
 
 extern Coordinator gCoordinator;
+extern Entity playerUnit; // Global reference to player
 
 class SquadSystem : public System
 {
 public:
     void Update(float dt)
     {
+        vec3d playerPos = {0,0,0};
+        if (gCoordinator.HasComponent<TransformComponent>(playerUnit))
+             playerPos = gCoordinator.GetComponent<TransformComponent>(playerUnit).Pos;
+
+        // --- 1. UPDATE SQUAD LEADERS (The Brains) ---
         for (auto const& entity : mEntities)
         {
+            // Filter for Squad Leaders
+            if (!gCoordinator.HasComponent<SquadComponent>(entity)) continue;
+
             auto& squad = gCoordinator.GetComponent<SquadComponent>(entity);
-            auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
+            auto& trans = gCoordinator.GetComponent<TransformComponent>(entity);
 
-            // 1. Update Timer
-            squad.stateTimer -= dt;
-
-            // 2. Squad Logic (Simple Wander)
-            // Every 5 seconds, pick a new random spot for the group
-            if (squad.stateTimer <= 0)
-            {
-                float rX = ((rand() % 100) / 5.0f) - 10.0f; // -10 to 10
-                float rZ = ((rand() % 100) / 5.0f) - 10.0f;
-                
-                // Set the Group's Target
-                squad.currentTarget = { transform.Pos.x + rX, 0, transform.Pos.z + rZ };
-                
-                // Reset Timer
-                squad.stateTimer = 5000.0f; 
-            }
-
-            // 3. Move the "Virtual Squad Center" towards the target
-            // This is invisible, but the soldiers will follow it.
-            vec3d dir = Engine3D::Vector_Sub(squad.currentTarget, transform.Pos);
-            float dist = sqrt(dir.x*dir.x + dir.z*dir.z);
+            // Simple AI: Move Squad Leader towards Player
+            // (Units will follow this invisible point)
+            vec3d dir = Engine3D::Vector_Normalise(Engine3D::Vector_Sub(playerPos, trans.Pos));
             
-            if (dist > 0.1f) {
-                vec3d norm = Engine3D::Vector_Div(dir, dist);
-                float speed = 2.0f * (dt / 1000.0f); // Squad moves slower/smoother
-                transform.Pos = Engine3D::Vector_Add(transform.Pos, Engine3D::Vector_Mul(norm, speed));
+            // Stop if the SQUAD CENTER is close to player (prevents pushing too far)
+            if (Engine3D::Vector_Distance(trans.Pos, playerPos) > 6.0f)
+            {
+                vec3d velocity = Engine3D::Vector_Mul(dir, squad.moveSpeed * (dt / 1000.0f));
+                trans.Pos = Engine3D::Vector_Add(trans.Pos, velocity);
             }
+        }
+
+        // --- 2. UPDATE SQUAD MEMBERS (The Grunts) ---
+        for (auto const& entity : mEntities)
+        {
+            // Filter for Members
+            if (!gCoordinator.HasComponent<SquadMemberComponent>(entity)) continue;
+
+            auto& member = gCoordinator.GetComponent<SquadMemberComponent>(entity);
+            auto& unit   = gCoordinator.GetComponent<UnitComponent>(entity);
+
+            // Get Leader Position
+            // (Note: In production code, check if entity exists first)
+            auto& leaderTrans = gCoordinator.GetComponent<TransformComponent>(member.squadId);
+
+            // CALCULATE CLUMP POSITION
+            // Target = LeaderPos + MyOffset
+            unit.targetPos = Engine3D::Vector_Add(leaderTrans.Pos, member.formationOffset);
+            
+            // Default to moving (UnitSystem will override if attacking)
+            unit.isMoving = true; 
         }
     }
 };
