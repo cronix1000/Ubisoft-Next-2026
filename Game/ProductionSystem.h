@@ -11,7 +11,6 @@ public:
     void Update(float dt, Entity playerGoldEntity) {
         for (auto const& entity : mEntities) {
             auto& factory = gCoordinator.GetComponent<FactoryComponent>(entity);
-            auto& progressBar = gCoordinator.GetComponent<UIProgressBar>(entity);
             factory.productionTimer += dt;
 
             if (factory.productionTimer >= factory.productionInterval) {
@@ -26,7 +25,6 @@ public:
                     label.text = "Gold: " + std::to_string(goldComp.gold);
                 }
             }
-            progressBar.progress = factory.productionTimer / factory.productionInterval;
         }
     }
 };

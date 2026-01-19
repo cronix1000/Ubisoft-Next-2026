@@ -17,7 +17,6 @@ struct ColliderWrapper {
     TransformComponent* transform;
     ColliderComponent* collider;
     StatComponent* stats;
-    FactionComponent* faction;
     UnitComponent* unit;       
     ProjectileComponent* proj; 
 };
@@ -46,13 +45,7 @@ public:
             cw.transform = &gCoordinator.GetComponent<TransformComponent>(entity);
             cw.collider = &gCoordinator.GetComponent<ColliderComponent>(entity);
             cw.stats = &gCoordinator.GetComponent<StatComponent>(entity);
-            
-            // Faction (Optional)
-            if (gCoordinator.HasComponent<FactionComponent>(entity)) {
-                cw.faction = &gCoordinator.GetComponent<FactionComponent>(entity);
-            } else {
-                cw.faction = nullptr;
-            }
+           
 
             // Unit Component (For Cooldowns)
             if (gCoordinator.HasComponent<UnitComponent>(entity)) {
@@ -123,8 +116,8 @@ private:
     void ResolveCollision(ColliderWrapper& a, ColliderWrapper& b, std::set<Entity>& destroyedSet)
     {
         // 1. Team Check (Friendly Fire prevention)
-        if (a.faction && b.faction) {
-            if (a.faction->teamId == b.faction->teamId) return;
+        if (a.stats && b.stats) {
+            if (a.stats->teamID== b.stats->teamID) return;
         }
 
         // 2. Projectile Logic (One-shot)

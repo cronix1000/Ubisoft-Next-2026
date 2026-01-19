@@ -109,7 +109,7 @@ private:
         gCoordinator.AddComponent(bullet, ColliderComponent{ 0.5f, true, false });
         gCoordinator.AddComponent(bullet, ProjectileComponent{ velocity, 10, ownerTeam, 2.0f });
         gCoordinator.AddComponent(bullet, ArcAnimComponent{ startPos, targetTrans.Pos, 2.0f, 0.8f, 0.0f });
-        gCoordinator.AddComponent(bullet, FactionComponent{ ownerTeam });
+        //gCoordinator.AddComponent(bullet, FactionComponent{ ownerTeam });
          gCoordinator.AddComponent(bullet, StatComponent{1 , 1, 20, ownerTeam});
  
     }
@@ -128,7 +128,7 @@ private:
         gCoordinator.AddComponent(rock, ColliderComponent{ 0.4f, true, false });
         gCoordinator.AddComponent(rock, ProjectileComponent{ velocity, 25, ownerTeam, 3.0f });
         gCoordinator.AddComponent(rock, ArcAnimComponent{ startPos, targetTrans.Pos, 5.0f, 1.5f, 0.0f });
-        gCoordinator.AddComponent(rock, FactionComponent{ ownerTeam });
+        //gCoordinator.AddComponent(rock, FactionComponent{ ownerTeam });
         gCoordinator.AddComponent(rock, StatComponent{1 , 1, 50, ownerTeam});
     }
 };

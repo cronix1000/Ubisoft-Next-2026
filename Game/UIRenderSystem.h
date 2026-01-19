@@ -3,6 +3,7 @@
 #include <app.h>
 #include "Coordinator.h"
 #include "UILabel.h"
+#include "freeglut_config.h"
 
 extern Coordinator gCoordinator;
 
@@ -16,7 +17,7 @@ public:
             auto& label = gCoordinator.GetComponent<UILabel>(entity);
 
             // Draw Text
-            App::Print(label.x, label.y, label.text.c_str(), label.r, label.g, label.b);
+            App::Print(label.x, label.y, label.text.c_str(), label.r, label.g, label.b, GLUT_BITMAP_TIMES_ROMAN_24);
 
 
         }
