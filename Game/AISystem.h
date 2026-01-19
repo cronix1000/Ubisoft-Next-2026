@@ -21,25 +21,6 @@ public:
             auto& faction = gCoordinator.GetComponent<FactionComponent>(entity);
             auto& unit = gCoordinator.GetComponent<UnitComponent>(entity); // GET UNIT COMPONENT
 
-            // 1. UPDATE TIMERS
-            if (ai.attackCooldown > 0) ai.attackCooldown -= dt;
-            if (ai.actionTimer > 0) ai.actionTimer -= dt;
-
-            // 2. COMBAT LOGIC
-            if (ai.attackCooldown <= 0)
-            {
-                Entity target = FindNearestEnemy(transform.Pos, faction.teamId);
-                
-                if (target != -1) 
-                {
-                    SpawnProjectile(transform.Pos, target, faction.teamId);
-                    ai.attackCooldown = 2000.0f; 
-                    
-                    // Optional: Stop moving to shoot?
-                    // unit.isMoving = false; 
-                }
-            }
-
             // 3. MOVEMENT LOGIC (Wander)
             if (ai.type == AIComponent::Type::Wander)
             {

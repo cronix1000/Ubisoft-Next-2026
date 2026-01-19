@@ -26,7 +26,10 @@
 #include "UnitComponent.h"
 #include "SquadSystem.h"           
 #include "AnimationSystem.h"      
-#include "ArcAnimComponent.h"      
+#include "ArcAnimComponent.h"
+#include "ProjectileSystem.h"
+#include "ProjectileComponent.h"
+
 using namespace Engine3D;
 
 Coordinator gCoordinator;
@@ -45,6 +48,7 @@ std::shared_ptr<Render3DSystem> render3D;
 std::shared_ptr<UIRenderSystem> renderUI;
 std::shared_ptr<UIButtonSystem> renderButtonUI;
 std::shared_ptr<PlayerControlSystem> playerSystem;
+std::shared_ptr<ProjectileSystem> projectileSystem;
 //------------------------------------------------------------------------
 // GLOBAL STATE VARIABLES
 //------------------------------------------------------------------------
@@ -262,6 +266,14 @@ void Init()
             gCoordinator.SetSystemSignature<AnimationSystem>(sig);
         }
 
+
+        projectileSystem = gCoordinator.RegisterSystem<ProjectileSystem>();
+        {
+            Signature sig;
+            sig.set(gCoordinator.GetComponentType<ProjectileComponent>());
+            sig.set(gCoordinator.GetComponentType<TransformComponent>());
+            gCoordinator.SetSystemSignature<ProjectileSystem>(sig);
+        }
         // 3. CREATE ENTITIES
 
         // -- Ground --
@@ -351,6 +363,7 @@ float mouseX, mouseY;
     squadSystem->Update(deltaTime);      
     unitSystem->Update(deltaTime);    
     animationSystem->Update(deltaTime);
+    projectileSystem->Update(deltaTime);
 
 	// 1. HANDLE UI BUTTON CLICKS
 	Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseYUI, isMousePressed);

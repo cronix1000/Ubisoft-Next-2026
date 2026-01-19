@@ -60,6 +60,7 @@ public:
 
 		mSystemManager->EntitySignatureChanged(entity, signature);
 	}
+	
 
 	template<typename T>
 	T& GetComponent(Entity entity)
