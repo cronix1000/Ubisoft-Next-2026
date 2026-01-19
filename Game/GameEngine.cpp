@@ -16,6 +16,16 @@
 #include <freeglut_config.h>
 #include "BuilderComponent.h"
 #include "StatComponent.h"
+#include <freeglut_config.h>
+#include "UnitSystem.h"
+#include "SquadComponent.h"
+#include "FactionComponent.h"
+#include "SquadMemberComponent.h"
+#include "SquadSystem.h"
+#include "CollisionSystem.h"
+#include "AISystem.h"
+#include "PlayerControlSystem.h"
+#include "UnitComponent.h"
 
 using namespace Engine3D;
 
@@ -24,10 +34,15 @@ Entity playerStats; // Holds our Score
 Entity mouseCursor; // Holds our "Ghost" builder state
 Entity btnScore;
 Entity btnBuild;
-
+Entity btnSpawnUnit;
+std::shared_ptr<UnitSystem> unitSystem;
+std::shared_ptr<SquadSystem> squadSystem;
+std::shared_ptr<CollisionSystem> collisionSystem;
+std::shared_ptr<AISystem> aiSystem;
 std::shared_ptr<Render3DSystem> render3D;
 std::shared_ptr<UIRenderSystem> renderUI;
 std::shared_ptr<UIButtonSystem> renderButtonUI;
+std::shared_ptr<PlayerControlSystem> playerSystem;
 //------------------------------------------------------------------------
 // GLOBAL STATE VARIABLES
 //------------------------------------------------------------------------
@@ -38,48 +53,129 @@ vec3d vLookDir = { 0, 0, 1 };
 vec3d vFocusPoint = { 0, 0, 0 };
 float fYaw = 0.0f;
 float fTheta = 0.0f;
+bool isMousePressed;
+bool isRightPressed;
 
 vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
 {
-    // 1. Convert Mouse to Normalized Device Coordinates (NDC)
-    // Screen is 0..Width, 0..Height. NDC is -1..1
-    float ndc_x = (2.0f * mouseX / (float)APP_VIRTUAL_WIDTH) - 1.0f;
-    float ndc_y = 1.0f - (2.0f * mouseY / (float)APP_VIRTUAL_HEIGHT); // Flip Y
+    // 1. Get NDC (Keep your previous fix)
+    float ndc_x = mouseX;
+    float ndc_y = mouseY;
 
-    // 2. Create the View-Projection Matrix
-    // We need to reconstruct the camera matrix used in Render()
+    if (abs(mouseX) > 1.0f || abs(mouseY) > 1.0f)
+    {
+        ndc_x = (2.0f * mouseX / (float)APP_VIRTUAL_WIDTH) - 1.0f;
+        ndc_y = 1.0f - (2.0f * mouseY / (float)APP_VIRTUAL_HEIGHT);
+    }
+
+    // 2. Manual Unprojection (Fixes the "Barely Moving" bug)
+    // We explicitly scale NDC by the camera's Zoom dimensions.
+    // These values MUST match what you set in Init()
+    float zoom = 15.0f;
+    float aspectRatio = (float)APP_VIRTUAL_WIDTH / (float)APP_VIRTUAL_HEIGHT;
+
+    float viewWidth = zoom * aspectRatio;
+    float viewHeight = zoom;
+
+    // Convert NDC (-1 to 1) directly to Camera View Space
+    // Range becomes [-7.5 to 7.5] instead of [-0.05 to 0.05]
+    float viewX = ndc_x * (viewWidth / 2.0f);
+    float viewY = ndc_y * (viewHeight / 2.0f);
+
+    // 3. Transform View Space -> World Space
+    // We create the Camera Matrix (transform from Camera to World)
     vec3d vUp = { 0.0f, 1.0f, 0.0f };
     mat4x4 matCamera = Matrix_PointAt(vCamera, vFocusPoint, vUp);
-    mat4x4 matView = Matrix_QuickInverse(matCamera);
-    mat4x4 matViewProj = Matrix_MultiplyMatrix(matView, matProj);
-    mat4x4 matInvViewProj = Matrix_QuickInverse(matViewProj);
 
-    // 3. Unproject 2 points (Near Plane and Far Plane) to get a Ray
-    // Z = -1.0 (Near), Z = 1.0 (Far)
-    vec3d rayStart = { ndc_x, ndc_y, -1.0f, 1.0f };
-    vec3d rayEnd = { ndc_x, ndc_y,  1.0f, 1.0f };
+    // Create a Ray in View Space (Straight line forward from the camera plane)
+    vec3d rayStartView = { viewX, viewY, -10.0f }; // Near point
+    vec3d rayEndView = { viewX, viewY,  50.0f }; // Far point
 
-    // Transform from Clip Space back to World Space
-    rayStart = Matrix_MultiplyVector(matInvViewProj, rayStart);
-    rayStart = Vector_Div(rayStart, rayStart.w);
+    // Convert to World Space
+    vec3d rayStart = Matrix_MultiplyVector(matCamera, rayStartView);
+    vec3d rayEnd = Matrix_MultiplyVector(matCamera, rayEndView);
 
-    rayEnd = Matrix_MultiplyVector(matInvViewProj, rayEnd);
-    rayEnd = Vector_Div(rayEnd, rayEnd.w);
-
-    // 4. Ray-Plane Intersection (Plane Y = 0)
+    // 4. Intersect with Ground (Plane Y = 0)
     vec3d rayDir = Vector_Normalise(Vector_Sub(rayEnd, rayStart));
 
-    // Safety: Only calculate if we are looking somewhat down/up, not perfectly parallel
+    // Prevent divide by zero if looking perfectly horizontal
     if (abs(rayDir.y) < 0.001f) return { 0,0,0 };
 
-    // t = (PlaneY - StartY) / DirY
+    // t = (TargetY - StartY) / DirY
     float t = (0.0f - rayStart.y) / rayDir.y;
 
-    // Calculate final intersection point
+    // Calculate intersection
     vec3d worldPos = Vector_Add(rayStart, Vector_Mul(rayDir, t));
+
+    // Lock Y to 0 exactly
+    worldPos.y = 0.0f;
+
     return worldPos;
 }
 
+void SpawnEnemySquad(float startX, float startZ) 
+{
+    // 1. Create the SQUAD LEADER (Virtual Entity)
+    Entity squadEnt = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(squadEnt, TransformComponent{ {startX, 0, startZ} });
+    gCoordinator.AddComponent(squadEnt, SquadComponent{ 1, {startX,0,startZ}, 5000.0f, 5.0f });
+    // Note: No MeshComponent! It's invisible.
+
+    // 2. Spawn SOLDIERS attached to this squad
+    int squadSize = 5;
+    for(int i=0; i<squadSize; i++) 
+    {
+        Entity soldier = gCoordinator.CreateEntity();
+        
+        // Calculate Formation Offset (Circle)
+        float theta = i * (6.28f / squadSize); // 360 degrees / count
+        float radius = 2.5f;
+        vec3d offset = { cosf(theta)*radius, 0, sinf(theta)*radius };
+
+        gCoordinator.AddComponent(soldier, TransformComponent{ {startX + offset.x, 0, startZ + offset.z} });
+        gCoordinator.AddComponent(soldier, MeshComponent{ ShapeBuilder::CreateWarrior() });
+        gCoordinator.AddComponent(soldier, FactionComponent{ 1 });
+        gCoordinator.AddComponent(soldier, AIComponent{ AIComponent::Type::Wander }); // Just tagging it as AI
+        
+        // LINK TO SQUAD
+        gCoordinator.AddComponent(soldier, SquadMemberComponent{ squadEnt, offset });
+    }
+}
+
+mesh CreateScaledWarrior(float scale) {
+    mesh raw = ShapeBuilder::CreateWarrior();
+    mesh finalMesh;
+    // Add the raw mesh to the final mesh with a scale applied
+    ShapeBuilder::AddMesh(finalMesh, raw, { 0,0,0 }, { scale, scale, scale });
+    return finalMesh;
+}
+
+mesh CreateEnemyWarrior(float scale) {
+	   mesh raw = ShapeBuilder::CreateEnemyWarrior();
+    mesh finalMesh;
+    // Add the raw mesh to the final mesh with a scale applied
+    ShapeBuilder::AddMesh(finalMesh, raw, { 0,0,0 }, { scale, scale, scale });
+    return finalMesh;
+}
+
+	void SpawnEnemyGroup(float startX, float startZ, int count)
+{
+    for(int i = 0; i < count; i++)
+    {
+        Entity enemy = gCoordinator.CreateEntity();
+
+        // Randomize start slightly
+        float rX = (rand() % 20) / 10.0f; 
+        float rZ = (rand() % 20) / 10.0f;
+
+        gCoordinator.AddComponent(enemy, TransformComponent{ {startX + rX, 0, startZ + rZ} });
+        gCoordinator.AddComponent(enemy, MeshComponent{ CreateEnemyWarrior(0.5f) }); // Use different color/mesh if possible
+        gCoordinator.AddComponent(enemy, FactionComponent{ 1 }); // Enemy Team
+		gCoordinator.AddComponent(enemy, AIComponent{ AIComponent::Type::Wander }); // Simple AI
+		
+        gCoordinator.AddComponent(enemy, UnitComponent{ {startX,0,startZ}, false, 5.0f, false });
+    }
+}
 //------------------------------------------------------------------------
 // Called before first update. Do any initial setup here.
 //------------------------------------------------------------------------
@@ -93,6 +189,14 @@ void Init()
     gCoordinator.RegisterComponent<UIButton>();
     gCoordinator.RegisterComponent<StatComponent>(); // Verified
     gCoordinator.RegisterComponent<BuilderComponent>();
+	gCoordinator.RegisterComponent<UnitComponent>();
+	gCoordinator.RegisterComponent<SquadComponent>();
+	gCoordinator.RegisterComponent<SquadMemberComponent>();
+	gCoordinator.RegisterComponent<ColliderComponent>();
+	gCoordinator.RegisterComponent<ProjectileComponent>();
+	gCoordinator.RegisterComponent<AIComponent>();
+	gCoordinator.RegisterComponent<FactionComponent>();
+
 
     // 1. Setup 3D System
     render3D = gCoordinator.RegisterSystem<Render3DSystem>();
@@ -114,11 +218,43 @@ void Init()
     sigBtton.set(gCoordinator.GetComponentType<UIButton>());
     gCoordinator.SetSystemSignature<UIButtonSystem>(sigBtton);
 
+    // 3. Setup Button System
+	unitSystem = gCoordinator.RegisterSystem<UnitSystem>();
+    Signature unitSig;
+	unitSig.set(gCoordinator.GetComponentType<TransformComponent>());
+unitSig.set(gCoordinator.GetComponentType<UnitComponent>());
+    gCoordinator.SetSystemSignature<UnitSystem>(unitSig);
+
+
+	// 4. Setup Squad System
+	squadSystem = gCoordinator.RegisterSystem<SquadSystem>();
+	Signature squadSig;
+	squadSig.set(gCoordinator.GetComponentType<TransformComponent>());
+	squadSig.set(gCoordinator.GetComponentType<SquadComponent>());
+	gCoordinator.SetSystemSignature<SquadSystem>(squadSig);
+
+	// 5. Setup Collision System
+	collisionSystem = gCoordinator.RegisterSystem<CollisionSystem>();
+	Signature collisionSig;
+	collisionSig.set(gCoordinator.GetComponentType<TransformComponent>());
+	collisionSig.set(gCoordinator.GetComponentType<ColliderComponent>());
+	collisionSig.set(gCoordinator.GetComponentType<ProjectileComponent>());
+	gCoordinator.SetSystemSignature<CollisionSystem>(collisionSig);
+
+	// 6. Setup AI System
+	aiSystem = gCoordinator.RegisterSystem<AISystem>();
+	Signature aiSig;
+	aiSig.set(gCoordinator.GetComponentType<TransformComponent>());
+	aiSig.set(gCoordinator.GetComponentType<AIComponent>());
+	aiSig.set(gCoordinator.GetComponentType<FactionComponent>());
+	gCoordinator.SetSystemSignature<AISystem>(aiSig);
+
+
     // --- ENTITIES ---
 
     Entity ground = gCoordinator.CreateEntity();
-    mesh groundMesh = ShapeBuilder::CreatePlane(50.0f, 0.2f, 0.5f, 0.2f);
-    gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} }); // Fixed to -0.1f
+    mesh groundMesh = ShapeBuilder::CreatePlane(150.0f, 0.2f, 0.5f, 0.2f);
+    gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} }); 
     gCoordinator.AddComponent(ground, MeshComponent{ groundMesh });
 
     // UNITS
@@ -139,6 +275,12 @@ void Init()
     mesh warriorMesh = ShapeBuilder::CreateWarrior();
     gCoordinator.AddComponent(warrior, TransformComponent{ {1, 0, 3} });
     gCoordinator.AddComponent(warrior, MeshComponent{ warriorMesh });
+
+	playerSystem = gCoordinator.RegisterSystem<PlayerControlSystem>();
+    Signature sigPlayer;
+    sigPlayer.set(gCoordinator.GetComponentType<UnitComponent>());
+    // Add a 'PlayerFaction' component check here if you want to filter strictly
+    gCoordinator.SetSystemSignature<PlayerControlSystem>(sigPlayer);
 
     // --- FIX STARTS HERE ---
     // We must initialize the GLOBAL 'playerStats' entity, not a local 'scoreLabel'
@@ -162,26 +304,59 @@ void Init()
     btnBuild = gCoordinator.CreateEntity();
     gCoordinator.AddComponent(btnBuild, UIButton{ 50, 100, 150, 40, "Build Factory", 0.2f, 0.2f, 0.8f });
 
-    // Camera Setup
+
+	btnSpawnUnit = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(btnSpawnUnit, UIButton{ 50, 150, 150, 40, "Spawn Unit", 0.7f, 0.2f, 0.2f });
+    
+
+	// Camera Setup
     float zoom = 15.0f;
     float aspectRatio = (float)APP_VIRTUAL_WIDTH / (float)APP_VIRTUAL_HEIGHT;
-    matProj = Engine3D::Matrix_MakeOrthographic(zoom * aspectRatio, zoom, -100.0f, 1000.0f);
+    matProj = Engine3D::Matrix_MakeOrthographic(zoom * aspectRatio, zoom, -500.0f, 5000.0f);
     fYaw = 0.785398f;
     fTheta = 0.615472f;
     vFocusPoint = { 0, 0, 0 };
+    isMousePressed = false;
+    isRightPressed = false;
 }
 //---------------------------------------------------------------------
 // Update your simulation here. 
 //------------------------------------------------------------------------
 void Update(const float deltaTime)
 {
+
+
 float mouseX, mouseY;
     App::GetMousePos(mouseX, mouseY);
-    bool isMousePressed = App::IsMousePressed(GLUT_LEFT_BUTTON);
-    bool isRightPressed = App::IsMousePressed(GLUT_RIGHT_BUTTON);
+    float mouseYUI = APP_VIRTUAL_HEIGHT - mouseY;
+     isMousePressed = App::IsMousePressed(GLUT_LEFT_BUTTON);
+     isRightPressed = App::IsMousePressed(GLUT_RIGHT_BUTTON);
 
-	Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseY, isMousePressed);
-if (clickedID == btnScore)
+    unitSystem->Update(deltaTime);
+	collisionSystem->Update(deltaTime);
+	squadSystem->Update(deltaTime);
+	aiSystem->Update(deltaTime);
+
+	// 1. HANDLE UI BUTTON CLICKS
+	Entity clickedID = renderButtonUI->UpdateInput(mouseX, mouseYUI, isMousePressed);
+	if (clickedID == btnSpawnUnit)
+    {
+        // SPAWN LOGIC
+        Entity unit = gCoordinator.CreateEntity();
+        
+        // Use our helper to scale the warrior down (0.3 scale)
+        mesh warriorMesh = CreateScaledWarrior(0.3f); 
+        
+        // Spawn at a default location (e.g., near the first factory)
+        // Adding a small random offset so they don't spawn inside each other
+        float offsetX = (rand() % 100) / 50.0f; 
+        float offsetZ = (rand() % 100) / 50.0f;
+
+        gCoordinator.AddComponent(unit, TransformComponent{ {5.0f + offsetX, 0, 5.0f + offsetZ} });
+        gCoordinator.AddComponent(unit, MeshComponent{ warriorMesh });
+        gCoordinator.AddComponent(unit, UnitComponent{}); // Default constructor sets defaults
+    }
+	if (clickedID == btnScore)
     {
         // SIMPLE INTERACTION: Direct Modification
         auto& stats = gCoordinator.GetComponent<StatComponent>(playerStats);
@@ -229,31 +404,13 @@ if (clickedID == btnScore)
             gCoordinator.RemoveComponent<MeshComponent>(mouseCursor); // Remove ghost mesh
         }
     }
-	// RTS Camera Movement Speed
-	float speed = 20.0f * deltaTime / 1000.0f;
 
-	if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
-	if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
+    if (!gCoordinator.HasComponent<BuilderComponent>(mouseCursor))
+    {
+     playerSystem->Update(deltaTime);  
+	}
 
-	if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
-	if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
 
-	// Calculate fixed Isometric Offset
-	float distance = 20.0f;
-
-	// We construct the camera position by rotating a vector {0,0,-dist} 
-	// by our fixed Pitch (Theta) and Yaw.
-	mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
-	mat4x4 matYaw = Matrix_MakeRotationY(fYaw);
-	mat4x4 matRot = Matrix_MultiplyMatrix(matPitch, matYaw);
-
-	vec3d vOffset = { 0.0f, 0.0f, -distance };
-	vOffset = Matrix_MultiplyVector(matRot, vOffset);
-
-	// Set Camera
-	vCamera = Vector_Add(vFocusPoint, vOffset);
-
-	// Removed: fTheta += ... (Stop the spinning!)
 }
 //------------------------------------------------------------------------
 // Display calls here 
@@ -267,6 +424,7 @@ void Render()
 
 	render3D->Draw(matView, matProj, vCamera);
 	renderUI->Draw();
+    renderButtonUI->Draw();
 }
 //-------------------------	-----------------------------------------------
 // Shutdown

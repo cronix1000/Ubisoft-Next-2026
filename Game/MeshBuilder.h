@@ -67,7 +67,10 @@ namespace ShapeBuilder
     mesh CreatePlane(float size, float r, float g, float b)
     {
         mesh m;
-        int tiles = 10; // 10x10 Grid
+        int tiles = (int)size;
+        if (tiles < 10) tiles = 10;
+        if (tiles > 100) tiles = 100;
+
         float step = (size * 2.0f) / tiles;
         float start = -size;
 
@@ -103,6 +106,13 @@ namespace ShapeBuilder
     mesh CreateWarrior() {
         mesh composite;
         AddMesh(composite, CreateCube(0, 1, 0), { 0,0,0 }, { 0.5f, 0.8f, 0.5f });
+        AddMesh(composite, CreateCube(1, 0.8f, 0.6f), { 0.1f, 0.8f, 0.1f }, { 0.3f, 0.3f, 0.3f });
+        return composite;
+    }
+
+    mesh CreateEnemyWarrior() {
+        mesh composite;
+        AddMesh(composite, CreateCube(1, 0, 0), { 0,0,0 }, { 0.5f, 0.8f, 0.5f });
         AddMesh(composite, CreateCube(1, 0.8f, 0.6f), { 0.1f, 0.8f, 0.1f }, { 0.3f, 0.3f, 0.3f });
         return composite;
     }

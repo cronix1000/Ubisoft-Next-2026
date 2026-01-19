@@ -2,6 +2,8 @@
 #include "System.h"
 #include "Coordinator.h"
 #include "Components.h" 
+#include "FactionComponent.h"
+#include "ProjectileComponent.h"
 
 extern Coordinator gCoordinator;
 
@@ -17,7 +19,7 @@ public:
 
         for (auto const& entity : mEntities)
         {
-            if (gCoordinator.HasComponent<Projectile>(entity)) {
+            if (gCoordinator.HasComponent<ProjectileComponent>(entity)) {
                 projectiles.push_back(entity);
             }
             else {
@@ -26,7 +28,7 @@ public:
         }
 
         // 2. Check Collisions (Projectile vs Target)
-        for (Entity bullet : projectiles)
+        for (Entity bullet : projectiles)   
         {
             auto& bulletTrans = gCoordinator.GetComponent<TransformComponent>(bullet);
             auto& bulletCol = gCoordinator.GetComponent<ColliderComponent>(bullet);
@@ -35,19 +37,19 @@ public:
             for (Entity target : targets)
             {
                 // Safety Check: Don't hit yourself or your own team
-                if (gCoordinator.HasComponent<Faction>(target)) {
-                    auto& faction = gCoordinator.GetComponent<Faction>(target);
+                if (gCoordinator.HasComponent<FactionComponent>(target)) {
+                    auto& faction = gCoordinator.GetComponent<FactionComponent>(target);
                     if (faction.teamId == bulletProj.ownerTeamId) continue;
                 }
 
-                auto& targetTrans = gCoordinator.GetComponent<Transform>(target);
-                auto& targetCol = gCoordinator.GetComponent<Collider>(target);
+                auto& targetTrans = gCoordinator.GetComponent<TransformComponent>(target);
+                auto& targetCol = gCoordinator.GetComponent<ColliderComponent>(target);
 
                 // --- SPHERE COLLISION MATH ---
                 // Formula: Distance^2 < (Radius1 + Radius2)^2
-                float dx = bulletTrans.pos.x - targetTrans.pos.x;
-                float dy = bulletTrans.pos.y - targetTrans.pos.y;
-                float dz = bulletTrans.pos.z - targetTrans.pos.z;
+                float dx = bulletTrans.Pos.x - targetTrans.Pos.x;
+                float dy = bulletTrans.Pos.y - targetTrans.Pos.y;
+                float dz = bulletTrans.Pos.z - targetTrans.Pos.z;
 
                 float distSq = dx * dx + dy * dy + dz * dz;
                 float radiiSum = bulletCol.radius + targetCol.radius;

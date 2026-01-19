@@ -1,5 +1,7 @@
+#pragma once
 #include "ThreeDVisualiser.h"
-struct Projectile {
+
+struct ProjectileComponent {
     vec3d velocity;
     int damage;
     int ownerTeamId; // Don't hit your own team!
