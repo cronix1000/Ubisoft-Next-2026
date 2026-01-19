@@ -3,7 +3,6 @@
 #include <vector>
 #include <functional>
 #include "Coordinator.h" 
-// A System is just a void function that takes the Registry and DeltaTime
 using SystemFunc = std::function<void(Coordinator&, float)>;
 
 class SystemManager {

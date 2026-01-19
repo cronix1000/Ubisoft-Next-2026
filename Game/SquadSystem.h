@@ -15,6 +15,38 @@ extern Entity playerUnit; // Global reference to player
 
 class SquadSystem : public System
 {
+private:
+    // Spatial grid for fast enemy lookups
+    static constexpr float GRID_CELL_SIZE = 10.0f;
+    std::unordered_map<int, std::vector<Entity>> spatialGridTeam0;
+    std::unordered_map<int, std::vector<Entity>> spatialGridTeam1;
+    
+    int GetGridKey(vec3d pos) {
+        int x = static_cast<int>(pos.x / GRID_CELL_SIZE);
+        int z = static_cast<int>(pos.z / GRID_CELL_SIZE);
+        return (x << 16) | (z & 0xFFFF);
+    }
+    
+    void RebuildSpatialGrid() {
+        spatialGridTeam0.clear();
+        spatialGridTeam1.clear();
+        
+        for (auto const& entity : mEntities) {
+            if (!gCoordinator.HasComponent<FactionComponent>(entity)) continue;
+            if (!gCoordinator.HasComponent<TransformComponent>(entity)) continue;
+            
+            auto& faction = gCoordinator.GetComponent<FactionComponent>(entity);
+            auto& trans = gCoordinator.GetComponent<TransformComponent>(entity);
+            int key = GetGridKey(trans.Pos);
+            
+            if (faction.teamId == 0) {
+                spatialGridTeam0[key].push_back(entity);
+            } else if (faction.teamId == 1) {
+                spatialGridTeam1[key].push_back(entity);
+            }
+        }
+    }
+
 public:
     // Helper to recalculate offsets (Spiral/Circle)
     void RecalculateFormation(Entity leaderEntity)
@@ -40,6 +72,9 @@ public:
 
     void Update(float dt)
     {
+        // Rebuild spatial grid once per frame
+        RebuildSpatialGrid();
+        
         vec3d playerPos = { 0,0,0 };
         if (gCoordinator.HasComponent<TransformComponent>(playerUnit))
             playerPos = gCoordinator.GetComponent<TransformComponent>(playerUnit).Pos;
@@ -56,7 +91,7 @@ public:
             if (squad.teamId == 1)
             {
                 // Check if near any player faction entity or factory
-                bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 20.0f);
+                bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 50.0f);
                 vec3d velocity = { 0,0,0 };
                 if (nearPlayerFaction)
                 {
@@ -151,7 +186,7 @@ public:
             if (myTeam == 1)
             {
                 // Check if near any player faction entity or factory
-                bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 20.0f);
+                bool nearPlayerFaction = IsNearPlayerFactionOrFactory(trans.Pos, 50.0f);
                 
                 if (nearPlayerFaction)
                 {
@@ -229,8 +264,29 @@ public:
     bool IsNearPlayerFactionOrFactory(vec3d myPos, float maxRange)
     {
         float maxRangeSq = maxRange * maxRange;
+        int centerKey = GetGridKey(myPos);
+        
+        // Check only nearby grid cells (3x3 region)
+        int centerX = static_cast<int>(myPos.x / GRID_CELL_SIZE);
+        int centerZ = static_cast<int>(myPos.z / GRID_CELL_SIZE);
+        
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                int key = ((centerX + dx) << 16) | ((centerZ + dz) & 0xFFFF);
+                
+                if (spatialGridTeam0.find(key) == spatialGridTeam0.end()) continue;
+                
+                for (Entity targetEntity : spatialGridTeam0[key]) {
+                    if (!gCoordinator.HasComponent<TransformComponent>(targetEntity)) continue;
+                    auto& tPos = gCoordinator.GetComponent<TransformComponent>(targetEntity).Pos;
+                    float distSq = (tPos.x - myPos.x) * (tPos.x - myPos.x) + (tPos.z - myPos.z) * (tPos.z - myPos.z);
+                    
+                    if (distSq <= maxRangeSq) return true;
+                }
+            }
+        }
 
-        // Check all entities for player faction or factories
+        // Check all entities for factories (less common)
         for (auto const& targetEntity : mEntities)
         {
             if (!gCoordinator.HasComponent<TransformComponent>(targetEntity)) continue;
@@ -239,13 +295,6 @@ public:
 
             if (distSq <= maxRangeSq)
             {
-                // Check if it's player faction (team 0)
-                if (gCoordinator.HasComponent<FactionComponent>(targetEntity))
-                {
-                    auto& faction = gCoordinator.GetComponent<FactionComponent>(targetEntity);
-                    if (faction.teamId == 0) return true;
-                }
-
                 // Check if it's a factory with collider
                 if (gCoordinator.HasComponent<FactoryComponent>(targetEntity) &&
                     gCoordinator.HasComponent<ColliderComponent>(targetEntity))
@@ -261,25 +310,36 @@ public:
     {
         Entity nearest = static_cast<Entity>(-1);
         float minDstSq = 20.0f * 20.0f; // Max Search Range
+        
+        // Use spatial grid for the opposite team
+        auto& enemyGrid = (myTeam == 0) ? spatialGridTeam1 : spatialGridTeam0;
+        
+        // Check only nearby grid cells (5x5 region for 20 unit search range)
+        int centerX = static_cast<int>(myPos.x / GRID_CELL_SIZE);
+        int centerZ = static_cast<int>(myPos.z / GRID_CELL_SIZE);
+        int searchRadius = static_cast<int>(20.0f / GRID_CELL_SIZE) + 1;
+        
+        for (int dx = -searchRadius; dx <= searchRadius; dx++) {
+            for (int dz = -searchRadius; dz <= searchRadius; dz++) {
+                int key = ((centerX + dx) << 16) | ((centerZ + dz) & 0xFFFF);
+                
+                if (enemyGrid.find(key) == enemyGrid.end()) continue;
+                
+                for (Entity targetEntity : enemyGrid[key]) {
+                    if (!gCoordinator.HasComponent<TransformComponent>(targetEntity)) continue;
+                    
+                    auto& tPos = gCoordinator.GetComponent<TransformComponent>(targetEntity).Pos;
+                    float distSq = (tPos.x - myPos.x) * (tPos.x - myPos.x) + 
+                                   (tPos.z - myPos.z) * (tPos.z - myPos.z);
 
-        // Iterate all entities to find enemies
-        // (In optimized engine, use a Spatial Partition or specific list)
-        for (auto const& targetEntity : mEntities)
-        {
-            if (!gCoordinator.HasComponent<FactionComponent>(targetEntity)) continue;
-            auto& targetFaction = gCoordinator.GetComponent<FactionComponent>(targetEntity);
-
-            if (targetFaction.teamId != myTeam)
-            {
-                auto& tPos = gCoordinator.GetComponent<TransformComponent>(targetEntity).Pos;
-                float distSq = (tPos.x - myPos.x) * (tPos.x - myPos.x) + (tPos.z - myPos.z) * (tPos.z - myPos.z);
-
-                if (distSq < minDstSq) {
-                    minDstSq = distSq;
-                    nearest = targetEntity;
+                    if (distSq < minDstSq) {
+                        minDstSq = distSq;
+                        nearest = targetEntity;
+                    }
                 }
             }
         }
+        
         return nearest;
     }
 };

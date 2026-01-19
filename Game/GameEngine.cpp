@@ -52,7 +52,7 @@ Entity btnSpawnUnit;
 Entity btnSpawnMelee;
 Entity btnSpawnRanged;
 Entity btnSpawnCatapult;
-
+Entity notificationLabel;
 // Logic Entities
 Entity playerUnit;
 
@@ -82,6 +82,17 @@ bool isRightPressed;
 bool wasRightPressed = false;
 const float playerSpeed = 12;
 
+// Tutorial tracking
+bool hasMoved = false;
+bool hasBoughtUnit = false;
+bool hasPlacedFactory = false;
+int initialSquadSize = 0;
+
+// Game timer (5 minutes = 300,000 milliseconds)
+float gameTimer = 300000.0f;
+bool gameOver = false;
+Entity timerLabel;
+Entity enemyCountLabel;
 //------------------------------------------------------------------------
 // HELPER FUNCTIONS
 //------------------------------------------------------------------------
@@ -125,15 +136,47 @@ vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
     return worldPos;
 }
 
-mesh CreateScaledWarrior(float scale) {
-    mesh raw = ShapeBuilder::CreateWarrior();
+mesh CreateScaledWarrior(float scale, UnitComponent::UnitType type) {
+    mesh raw;
     mesh finalMesh;
+	switch (type)
+	{
+	case UnitComponent::UnitType::meleeGrunt:
+	raw = ShapeBuilder::CreateWarrior(); // Green/Hunter tunic
+		break;
+	case UnitComponent::UnitType::Ranged:
+		raw = ShapeBuilder::CreateRangedWarrior(); // Green/Hunter tunic
+		break;
+	case UnitComponent::UnitType::Catapult:
+		raw = ShapeBuilder::CreateCatapult(); // Brown catapult
+		break;	
+	default:
+	raw = ShapeBuilder::CreateWarrior(); 
+		break;
+	}
     ShapeBuilder::AddMesh(finalMesh, raw, { 0,0,0 }, { scale, scale, scale });
     return finalMesh;
 }
 
-mesh CreateEnemyWarrior(float scale) {
-    mesh raw = ShapeBuilder::CreateEnemyWarrior();
+mesh CreateEnemyWarrior(float scale, UnitComponent::UnitType type) {
+    mesh raw;
+	switch (type)
+	{
+	case UnitComponent::UnitType::meleeGrunt:
+		
+		raw = ShapeBuilder::CreateEnemyWarrior(); // Red armor
+		break;
+	case UnitComponent::UnitType::Ranged:
+		raw = ShapeBuilder::CreateEnemyRangedWarrior(); // Red/Hunter tunic
+		break;
+	case UnitComponent::UnitType::Catapult:
+		
+		raw = ShapeBuilder::CreateCatapult(); // Brown catapult
+		break;
+	default:
+	raw = ShapeBuilder::CreateEnemyWarrior();
+		break;
+	}
     mesh finalMesh;
     ShapeBuilder::AddMesh(finalMesh, raw, { 0,0,0 }, { scale, scale, scale });
     return finalMesh;
@@ -164,22 +207,22 @@ void SpawnEnemySquad(int count, vec3d position)
 
         if (roll < meleeWeight) {
             unitType = UnitComponent::UnitType::meleeGrunt;
-            gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 15, 1 });
+            gCoordinator.AddComponent(grunt, StatComponent{ 10, 100, 15, 1 });
             scale = 0.3f;
         }
         else if (roll < meleeWeight + rangedWeight) {
             unitType = UnitComponent::UnitType::Ranged;
-            gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 1 });
+            gCoordinator.AddComponent(grunt, StatComponent{ 10, 100, 0, 1 });
             scale = 0.25f;
         }
         else {
             unitType = UnitComponent::UnitType::Catapult;
-            gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 1 });
+            gCoordinator.AddComponent(grunt, StatComponent{ 10, 100, 0, 1 });
             scale = 0.4f;
         }
 
         gCoordinator.AddComponent(grunt, UnitComponent{ unitType, spawnPos, false, 5.0f, false });
-        gCoordinator.AddComponent(grunt, MeshComponent{ CreateEnemyWarrior(scale) });
+        gCoordinator.AddComponent(grunt, MeshComponent{ CreateEnemyWarrior(scale, unitType) });
         gCoordinator.AddComponent(grunt, FactionComponent{ 1 });
         gCoordinator.AddComponent(grunt, ColliderComponent{ scale * 0.5f });
         gCoordinator.AddComponent(grunt, SquadMemberComponent{ leader, {0,0,0} });
@@ -212,7 +255,7 @@ void SpawnPlayerUnit(vec3d position, UnitComponent::UnitType type, float scale =
         break;
     }
 
-    gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(scale) });
+    gCoordinator.AddComponent(grunt, MeshComponent{ CreateScaledWarrior(scale, type) });
     gCoordinator.AddComponent(grunt, UnitComponent{ type, spawnPos, false, playerSpeed, false });
     gCoordinator.AddComponent(grunt, SquadMemberComponent{ playerUnit, {0,0,0} });
     gCoordinator.AddComponent(grunt, AIComponent{ AIComponent::Type::Wander });
@@ -293,14 +336,13 @@ void RegisterSystems() {
     sigUnit.set(gCoordinator.GetComponentType<UnitComponent>());
     gCoordinator.SetSystemSignature<UnitSystem>(sigUnit);
 
-    // Collisions
+    // Collisions (units AND projectiles need collisions)
     collisionSystem = gCoordinator.RegisterSystem<CollisionSystem>();
     Signature sigCol;
     sigCol.set(gCoordinator.GetComponentType<TransformComponent>());
     sigCol.set(gCoordinator.GetComponentType<ColliderComponent>());
-    //sigCol.set(gCoordinator.GetComponentType<FactionComponent>());
     sigCol.set(gCoordinator.GetComponentType<StatComponent>());
-	sigCol.set(gCoordinator.GetComponentType<ProjectileComponent>());
+    // Don't require ProjectileComponent - units need collisions too!
     gCoordinator.SetSystemSignature<CollisionSystem>(sigCol);
 
     // Squads
@@ -349,11 +391,6 @@ void SetupWorld() {
     gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} });
     gCoordinator.AddComponent(ground, MeshComponent{ groundMesh });
 
-    // -- Buildings --
-    Entity factory = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(factory, TransformComponent{ {5, 0, 5} });
-    gCoordinator.AddComponent(factory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
-
     // -- Gold Chunks (Resource System) --
     for (int i = 0; i < 20; i++) {
         Entity goldChunk = gCoordinator.CreateEntity();
@@ -380,10 +417,16 @@ void SetupWorld() {
     }
 
     // -- Units --
-    SpawnEnemySquad(50.0f, { -10, 0, 5 });
-    SpawnEnemySquad(35.0f, { -10, 0, -50 });
+    // SpawnEnemySquad(50.0f, { -10, 0, 5 });
+    SpawnEnemySquad(20.0f, { -10, 0, -50 });
     SpawnEnemySquad(20.0f, { 15, 0, -15 });
-    SpawnPlayerSquad(100, { 0, 0, 0 });
+    SpawnEnemySquad(30.0f, { 40, 0, 20 });
+    SpawnEnemySquad(25.0f, { -35, 0, -30 });
+    SpawnEnemySquad(15.0f, { 50, 0, -40 });
+    SpawnEnemySquad(20.0f, { -50, 0, 40 });
+    SpawnEnemySquad(30.0f, { 30, 0, -50 });
+    SpawnEnemySquad(25.0f, { -40, 0, 15 });
+    SpawnPlayerSquad(1, { 0, 0, 0 });
 }
 
 void SetupUI() {
@@ -408,7 +451,7 @@ void SetupUI() {
 
     btnSpawnCatapult = gCoordinator.CreateEntity();
     gCoordinator.AddComponent(btnSpawnCatapult, UIButton{
-        centerX + (cardWidth / 2.0f + cardSpacing), bottomY, cardWidth, cardHeight, "Catapult\n50g", 0.8f, 0.3f, 0.3f
+        centerX + (cardWidth / 2.0f + cardSpacing), bottomY, cardWidth, cardHeight, "Catapult\n20g", 0.8f, 0.3f, 0.3f
         });
 
 
@@ -417,10 +460,33 @@ void SetupUI() {
         });
 
     playerGold = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(playerGold, GoldComponent{ 0 });
-    gCoordinator.AddComponent(playerGold, UILabel{ 30, APP_VIRTUAL_HEIGHT - 60, "Gold: 0", 1, 1, 1 });
+    gCoordinator.AddComponent(playerGold, GoldComponent{ 50 });
+    gCoordinator.AddComponent(playerGold, UILabel{ 30, APP_VIRTUAL_HEIGHT - 60, "Gold: 50", 1, 1, 1 });
 
 
+    notificationLabel = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(notificationLabel, UILabel{
+        APP_VIRTUAL_WIDTH / 2 - 200,
+        50,
+        "Press WASD to move the camera",
+        1.0f, 1.0f, 0.0f
+        });
+
+    timerLabel = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(timerLabel, UILabel{
+        APP_VIRTUAL_WIDTH - 150,
+        APP_VIRTUAL_HEIGHT - 60,
+        "Time: 5:00",
+        1.0f, 1.0f, 1.0f
+        });
+
+    enemyCountLabel = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(enemyCountLabel, UILabel{
+        APP_VIRTUAL_WIDTH - 150,
+        APP_VIRTUAL_HEIGHT - 90,
+        "Enemies: 0",
+        1.0f, 0.3f, 0.3f
+        });
 
     mouseCursor = gCoordinator.CreateEntity();
     gCoordinator.AddComponent(mouseCursor, TransformComponent{ {0,0,0} });
@@ -462,6 +528,14 @@ void Init()
 
 void Update(const float deltaTime)
 {
+    // Update throttling - not all systems need to run every frame
+    static float accumulatedTime = 0.0f;
+    static int frameCount = 0;
+    accumulatedTime += deltaTime;
+    frameCount++;
+    
+    bool runSlowSystems = (frameCount % 3 == 0); // Run every 3rd frame (~20Hz at 60fps)
+    
     // --- 1. Input & Calculations ---
     float screenCenterX = (float)APP_VIRTUAL_WIDTH / 2.0f;
     float screenCenterY = (float)APP_VIRTUAL_HEIGHT / 2.0f;
@@ -480,21 +554,40 @@ void Update(const float deltaTime)
     // --- 2. System Updates ---
     unitSystem->Update(deltaTime);
     collisionSystem->Update(deltaTime);
-    squadSystem->Update(deltaTime);
+    
+    // Only update squad AI every 3rd frame (saves CPU on pathfinding)
+    if (runSlowSystems) {
+        squadSystem->Update(deltaTime * 3.0f); // Compensate for skipped frames
+    }
+    
     animationSystem->Update(deltaTime);
     projectileSystem->Update(deltaTime);
     // resourceSystem->Update(deltaTime); // Commented out in source
 
-    // Production Update (Gold Generation)
-    productionSystem->Update(deltaTime / 1000.0f, playerGold);
-
-    // --- 3. UI Logic ---
     auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
     auto& goldLabel = gCoordinator.GetComponent<UILabel>(playerGold);
+
+    // Production Update (Gold Generation) - can be slower
+    if (runSlowSystems) {
+        productionSystem->Update(deltaTime / 1000.0f * 3.0f, playerGold);
+        
+        static float passiveGoldTimer = 0.0f;
+        passiveGoldTimer += deltaTime * 3.0f;
+        if (passiveGoldTimer >= 2000.0f) {
+            gold.gold += 1;
+            // update label
+            goldLabel.text = "Gold: " + std::to_string(gold.gold);
+            passiveGoldTimer = 0.0f;
+        }
+    }
+
+    // --- 3. UI Logic ---
+
 
     auto& btnMeleeUI = gCoordinator.GetComponent<UIButton>(btnSpawnMelee);
     auto& btnRangedUI = gCoordinator.GetComponent<UIButton>(btnSpawnRanged);
     auto& btnCatapultUI = gCoordinator.GetComponent<UIButton>(btnSpawnCatapult);
+    
     btnMeleeUI.isDisabled = (gold.gold < 10);
     btnRangedUI.isDisabled = (gold.gold < 20);
     btnCatapultUI.isDisabled = (gold.gold < 50);
@@ -511,17 +604,11 @@ void Update(const float deltaTime)
         }
         };
 
-    if (clickedID == btnSpawnUnit)     TrySpawn(0, UnitComponent::UnitType::meleeGrunt);
     if (clickedID == btnSpawnMelee)    TrySpawn(10, UnitComponent::UnitType::meleeGrunt);
     if (clickedID == btnSpawnRanged)   TrySpawn(20, UnitComponent::UnitType::Ranged);
     if (clickedID == btnSpawnCatapult) TrySpawn(50, UnitComponent::UnitType::Catapult);
 
-    if (clickedID == btnScore) {
-        gold.gold += 10;
-        goldLabel.text = "Gold: " + std::to_string(gold.gold);
-    }
-
-    if (clickedID == btnBuild) {
+    if (clickedID == btnBuild && gold.gold >= 20) {
         // Only add components if not already in building mode
         if (!gCoordinator.HasComponent<BuilderComponent>(mouseCursor))
         {
@@ -565,23 +652,38 @@ void Update(const float deltaTime)
 
         // Place Building
         if (isMousePressed && canBuild) {
-            Entity newFactory = gCoordinator.CreateEntity();
-            gCoordinator.AddComponent(newFactory, TransformComponent{ {worldPos.x, 0, worldPos.z} });
-            gCoordinator.AddComponent(newFactory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
-            gCoordinator.AddComponent(newFactory, FactoryComponent{});
-            gCoordinator.AddComponent(newFactory, FactionComponent{ 0 });
-            gCoordinator.AddComponent(newFactory, StatComponent{ 1000, 1000, 0, 0 });
-            gCoordinator.AddComponent(newFactory, ColliderComponent{ 1.0f });
- /*           gCoordinator.AddComponent(newFactory, UIProgressBar{
-                worldPos.x, worldPos.z, 10, 5, 0.0f, 1.0f, 0.0f, 0
-                });*/
+            // Deduct gold for factory (cost is 20)
+            auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
+            auto& goldLabel = gCoordinator.GetComponent<UILabel>(playerGold);
+            
+            if (gold.gold >= 20) {
+                gold.gold -= 20;
+                goldLabel.text = "Gold: " + std::to_string(gold.gold);
+                
+                Entity newFactory = gCoordinator.CreateEntity();
+                gCoordinator.AddComponent(newFactory, TransformComponent{ {worldPos.x, 0, worldPos.z} });
+                gCoordinator.AddComponent(newFactory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
+                gCoordinator.AddComponent(newFactory, FactoryComponent{});
+                gCoordinator.AddComponent(newFactory, FactionComponent{ 0 });
+                gCoordinator.AddComponent(newFactory, StatComponent{ 1000, 1000, 0, 0 });
+                gCoordinator.AddComponent(newFactory, ColliderComponent{ 1.0f });
+     /*           gCoordinator.AddComponent(newFactory, UIProgressBar{
+                    worldPos.x, worldPos.z, 10, 5, 0.0f, 1.0f, 0.0f, 0
+                    });*/
 
-            if (targetGoldChunk != -1) {
-                auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(targetGoldChunk);
-                deposit.occupied = true;
-                deposit.linkedFactory = newFactory;
+                if (targetGoldChunk != -1) {
+                    auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(targetGoldChunk);
+                    deposit.occupied = true;
+                    deposit.linkedFactory = newFactory;
+                }
+
+                gCoordinator.RemoveComponent<BuilderComponent>(mouseCursor);
+                gCoordinator.RemoveComponent<MeshComponent>(mouseCursor);
             }
-
+        }
+        
+        // Cancel building mode (right click)
+        if (isRightClicked) {
             gCoordinator.RemoveComponent<BuilderComponent>(mouseCursor);
             gCoordinator.RemoveComponent<MeshComponent>(mouseCursor);
         }
@@ -589,7 +691,120 @@ void Update(const float deltaTime)
     else {
         // Only update player movement if not building
         playerSystem->Update(deltaTime);
+
+		    // --- 5. Camera Movement ---
+    float speed = playerSpeed * deltaTime / 1000.0f;
+    if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
+    if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
+    if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
+    if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
+
+
+    float mapLimit = 500.0f;
+    if (vFocusPoint.z > mapLimit) vFocusPoint.z = mapLimit;
+    if (vFocusPoint.z < -mapLimit) vFocusPoint.z = -mapLimit;
+    if (vFocusPoint.x > mapLimit) vFocusPoint.x = mapLimit;
+    if (vFocusPoint.x < -mapLimit) vFocusPoint.x = -mapLimit;
     }
+
+    // --- TUTORIAL LOGIC ---
+    auto& note = gCoordinator.GetComponent<UILabel>(notificationLabel);
+    
+    if (!gameOver) {
+        gameTimer -= deltaTime;
+        
+        // Count enemies (faction team 1)
+        int enemyCount = 0;
+        for (auto const& entity : squadSystem->mEntities) {
+            if (gCoordinator.HasComponent<FactionComponent>(entity)) {
+                auto& faction = gCoordinator.GetComponent<FactionComponent>(entity);
+                if (faction.teamId == 1) {
+                    enemyCount++;
+                }
+            }
+        }
+        
+        // Update enemy count display
+        auto& enemyText = gCoordinator.GetComponent<UILabel>(enemyCountLabel);
+        enemyText.text = "Enemies: " + std::to_string(enemyCount);
+        
+        // Check win condition
+        if (enemyCount == 0) {
+            gameOver = true;
+            note.text = "VICTORY! All enemies defeated!";
+            note.r = 0.0f; note.g = 1.0f; note.b = 0.0f;
+        }
+        
+        // Update timer display
+        auto& timerText = gCoordinator.GetComponent<UILabel>(timerLabel);
+        int totalSeconds = static_cast<int>(gameTimer / 1000.0f);
+        if (totalSeconds < 0) totalSeconds = 0;
+        int minutes = totalSeconds / 60;
+        int seconds = totalSeconds % 60;
+        timerText.text = "Time: " + std::to_string(minutes) + ":" + 
+                         (seconds < 10 ? "0" : "") + std::to_string(seconds);
+        
+        // Change color when time is running out
+        if (totalSeconds < 60) {
+            timerText.r = 1.0f; timerText.g = 0.3f; timerText.b = 0.3f; // Red
+        } else if (totalSeconds < 120) {
+            timerText.r = 1.0f; timerText.g = 0.7f; timerText.b = 0.0f; // Orange
+        } else {
+            timerText.r = 1.0f; timerText.g = 1.0f; timerText.b = 1.0f; // White
+        }
+        
+        // Game over if time runs out
+        if (gameTimer <= 0.0f) {
+            gameOver = true;
+            note.text = "TIME'S UP! GAME OVER!";
+            note.r = 1.0f; note.g = 0.0f; note.b = 0.0f;
+        }
+    }
+    
+    // Skip tutorial updates if game is over
+    if (!gameOver) {
+    // Step 1: Wait for camera movement
+    if (!hasMoved) {
+        if (App::IsKeyPressed(App::KEY_W) || App::IsKeyPressed(App::KEY_A) ||
+            App::IsKeyPressed(App::KEY_S) || App::IsKeyPressed(App::KEY_D)) {
+            hasMoved = true;
+            note.text = "Good! Now spawn a unit (click green Melee button)";
+        }
+    }
+    // Step 2: Wait for unit purchase
+    else if (!hasBoughtUnit) {
+        // Check if squad size increased
+        int currentSquadSize = 0;
+        for (auto const& entity : squadSystem->mEntities) {
+            if (gCoordinator.HasComponent<SquadMemberComponent>(entity)) {
+                auto& member = gCoordinator.GetComponent<SquadMemberComponent>(entity);
+                if (member.squadId == playerUnit) currentSquadSize++;
+            }
+        }
+        
+        if (initialSquadSize == 0) {
+            initialSquadSize = currentSquadSize;
+        } else if (currentSquadSize > initialSquadSize) {
+            hasBoughtUnit = true;
+            note.text = "Great! Press Factory Button and click near gold to build a factory | Press Right Click to cancel";
+        }
+    }
+    // Step 3: Wait for factory placement
+    else if (!hasPlacedFactory) {
+        if (productionSystem->mEntities.size() > 0) {
+            hasPlacedFactory = true;
+            note.text = "Perfect! Kill all enemies to win!";
+        }
+    }
+    // Tutorial complete - clear message after a few seconds
+    else {
+        static float completionTimer = 0.0f;
+        completionTimer += deltaTime;
+        if (completionTimer > 5000.0f) {
+            note.text = "";
+        }
+    }
+    } // End game over check
 
     // Squad Leader Target Logic
     if (worldCenter.x != 0.0f || worldCenter.z != 0.0f) {
@@ -600,18 +815,7 @@ void Update(const float deltaTime)
         }
     }
 
-    // --- 5. Camera Movement ---
-    float speed = playerSpeed * deltaTime / 1000.0f;
-    if (App::IsKeyPressed(App::KEY_W)) vFocusPoint.z += speed;
-    if (App::IsKeyPressed(App::KEY_S)) vFocusPoint.z -= speed;
-    if (App::IsKeyPressed(App::KEY_A)) vFocusPoint.x -= speed;
-    if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
 
-    float mapLimit = 500.0f;
-    if (vFocusPoint.z > mapLimit) vFocusPoint.z = mapLimit;
-    if (vFocusPoint.z < -mapLimit) vFocusPoint.z = -mapLimit;
-    if (vFocusPoint.x > mapLimit) vFocusPoint.x = mapLimit;
-    if (vFocusPoint.x < -mapLimit) vFocusPoint.x = -mapLimit;
 
     mat4x4 matPitch = Matrix_MakeRotationX(fTheta);
     mat4x4 matYaw = Matrix_MakeRotationY(fYaw);

@@ -2,14 +2,13 @@
 #include <string>
 
 struct UIButton {
-    float x, y;       // Position
-    float w, h;       // Size
+    float x, y;       
+    float w, h;      
     std::string text;
-    float r, g, b;    // Base Color
+    float r, g, b;    
     
-    // State Flags (The System will update these)
     bool isHovered = false;
     bool isClicked = false; 
-    bool isDown = false; // True while held down
-    bool isDisabled = false; // True when button should be grayed out
+    bool isDown = false; 
+    bool isDisabled = false;
 };

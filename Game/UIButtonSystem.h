@@ -52,7 +52,7 @@ public:
         }
         return clickedEntity;
     }
-
+    // Draws all buttons in 2D space by ignoring camera and matricies
     void Draw()
     {
         for (auto const& entity : mEntities)
@@ -76,11 +76,6 @@ public:
             float y1 = btn.y;
             float x2 = btn.x + btn.w;
             float y2 = btn.y + btn.h;
-
-            // --- THE FIX ---
-            // 1. Pass x1, y1 directly (No manual conversion).
-            // 2. Pass Z = -1.0f. This is the "Near Plane". 
-            //    It forces the UI to be drawn ON TOP of the 3D world.
 
             App::DrawTriangle(x1, y1, -1.0f, 1.0f, x2, y1, -1.0f, 1.0f, x1, y2, -1.0f, 1.0f, r, g, b, r, g, b, r, g, b, false);
             App::DrawTriangle(x2, y1, -1.0f, 1.0f, x2, y2, -1.0f, 1.0f, x1, y2, -1.0f, 1.0f, r, g, b, r, g, b, r, g, b, false);

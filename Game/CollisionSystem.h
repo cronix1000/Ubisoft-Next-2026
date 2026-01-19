@@ -21,15 +21,29 @@ struct ColliderWrapper {
     ProjectileComponent* proj; 
 };
 
-class CollisionSystem : public System
-{
+const float CELL_SIZE = 2.0f; 
+
+struct GridKey {
+    int x, z;
+    bool operator==(const GridKey& other) const { return x == other.x && z == other.z; }
+};
+
+// Hasher for the map
+struct KeyHasher {
+    std::size_t operator()(const GridKey& k) const {
+        return std::hash<int>()(k.x) ^ std::hash<int>()(k.z);
+    }
+};
+
+class CollisionSystem : public System {
+    std::unordered_map<GridKey, std::vector<Entity>, KeyHasher> grid;
 public:
     void Update(float dt)
     {
         std::vector<ColliderWrapper> colliders;
         colliders.reserve(mEntities.size());
 
-        // 1. CACHE STEP
+        // 1. CACHE STEP - also cache team IDs to avoid lookups later
         for (auto const& entity : mEntities)
         {
             // Basic Requirements
@@ -68,6 +82,9 @@ public:
             colliders.push_back(cw);
         }
 
+        // Early exit if too few entities
+        if (colliders.size() < 2) return;
+        
         // 2. SORT STEP (Sweep and Prune X-Axis)
         std::sort(colliders.begin(), colliders.end(), 
             [](const ColliderWrapper& a, const ColliderWrapper& b) {
@@ -76,20 +93,26 @@ public:
 
         std::set<Entity> destroyedThisFrame;
 
-        // 3. COLLISION LOOP
+        // 3. COLLISION LOOP - with better early exits
         for (size_t i = 0; i < colliders.size(); ++i)
         {
             if (destroyedThisFrame.count(colliders[i].entity)) continue;
+            
+            float iX = colliders[i].transform->Pos.x;
+            float iRadius = colliders[i].collider->radius;
 
             for (size_t j = i + 1; j < colliders.size(); ++j)
             {
                 if (destroyedThisFrame.count(colliders[j].entity)) continue;
 
                 // X-Axis Early Exit
-                float xDiff = colliders[j].transform->Pos.x - colliders[i].transform->Pos.x;
-                float radiusSum = colliders[i].collider->radius + colliders[j].collider->radius;
+                float xDiff = colliders[j].transform->Pos.x - iX;
+                float radiusSum = iRadius + colliders[j].collider->radius;
                 
                 if (xDiff > radiusSum) break; 
+                
+                // Early team check - skip if same team
+                if (colliders[i].stats->teamID == colliders[j].stats->teamID) continue;
 
                 if (CheckCollision(colliders[i], colliders[j], radiusSum))
                 {
@@ -115,12 +138,7 @@ private:
 
     void ResolveCollision(ColliderWrapper& a, ColliderWrapper& b, std::set<Entity>& destroyedSet)
     {
-        // 1. Team Check (Friendly Fire prevention)
-        if (a.stats && b.stats) {
-            if (a.stats->teamID== b.stats->teamID) return;
-        }
-
-        // 2. Projectile Logic (One-shot)
+        // 1. Projectile Logic (One-shot)
         // If A is a projectile, it hits B, deals damage, and dies.
         if (a.proj) {
             ApplyDamage(b.entity, *b.stats, a.stats->damage, destroyedSet);
@@ -134,7 +152,7 @@ private:
             return; // B is dead, stop interaction
         }
 
-        // 3. Unit Combat Logic (Melee / Contact)
+        // 2. Unit Combat Logic (Melee / Contact)
         
         // B attacks A?
         bool bCanAttack = true;
@@ -185,7 +203,7 @@ private:
     void DestroyEntity(Entity e, std::set<Entity>& destroyedSet)
     {
         if (destroyedSet.count(e)) return;
-        if (gCoordinator.HasComponent<OccupyingDepositComponent>(e)) {
+            if (gCoordinator.HasComponent<OccupyingDepositComponent>(e)) {
                 auto& link = gCoordinator.GetComponent<OccupyingDepositComponent>(e);
                 
                 // Check if the gold chunk still exists (it should, but safety first)

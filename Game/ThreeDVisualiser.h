@@ -12,6 +12,11 @@ using std::ifstream;
 using std::istringstream;
 using std::max;
 
+///
+// Learned From:
+// OneLoneCoder's 3D Graphics Engine Tutorial Series
+/// https://github.com/OneLoneCoder/Javidx9/tree/master/ConsoleGameEngine/BiggerProjects/Engine3D
+//
 // 1. Data Structures
 struct vec3d
 {
