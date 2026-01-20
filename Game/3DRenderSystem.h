@@ -9,63 +9,60 @@ extern Coordinator gCoordinator;
 
 class Render3DSystem : public System
 {
-    // Helper struct for sorting
     struct RenderTri
     {
-        triangle t; // World Space Triangle
-        float depth;          // Average Z for sorting
+        triangle t;
+        float depth;
         vec3d normal;
-        float lightFactor;    // Pre-calculated lighting
+        float lightFactor;
     };
 
-    // OPTIMIZATION 1: Persistent Memory
-    // Moving this here prevents the game from asking the RAM for new memory 60 times a second.
+    // OPTIMIZATION 1: Persistent Memory (Prevents lag spikes from memory allocation)
     std::vector<RenderTri> m_trianglesCache;
 
 public:
     void Init() {
-        m_trianglesCache.reserve(20000); // Pre-allocate memory for ~1000 units
+        m_trianglesCache.reserve(20000);
     }
 
     void Draw(mat4x4& matView, mat4x4& matProj, vec3d cameraPos)
     {
         using namespace Engine3D;
 
-        // Reset the count, but keep the memory allocated
-        m_trianglesCache.clear();
+        m_trianglesCache.clear(); // Reset count, keep memory
 
-        // 1. LIGHTING DIRECTION
         vec3d lightDir = { 0.5f, -1.0f, 1.0f };
         lightDir = Vector_Normalise(lightDir);
 
-        // 2. GATHER AND TRANSFORM
         for (auto const& entity : mEntities)
         {
             auto& trans = gCoordinator.GetComponent<TransformComponent>(entity);
             auto& meshComp = gCoordinator.GetComponent<MeshComponent>(entity);
 
-            // OPTIMIZATION 2: Distance Checking & LOD
-            // Calculate distance once per ENTITY, not per triangle
+            // --- SMART LOD SYSTEM ---
             float distToCamera = Vector_Distance(trans.Pos, cameraPos);
+            size_t totalTris = meshComp.mesh.tris.size();
 
-            // Simple Culling: If it's too far to see, don't draw it at all
-            if (distToCamera > 300.0f) continue;
+            // HEURISTIC: Identify different mesh types for proper culling
+            bool isGroundPlane = (trans.Pos.y < 0.0f);
+            bool isSimpleMesh = (totalTris <= 12);
 
-            // LEVEL OF DETAIL (LOD):
-            // If the unit is far away (> 60 units), only draw the first 12 triangles (the main body/cube).
-            // This skips drawing small details like arms/weapons that you can't see anyway.
-            size_t detailLimit = meshComp.mesh.tris.size();
-            if (distToCamera > 60.0f) {
-                detailLimit = (std::min)(detailLimit, (size_t)12);
+            // Rule 1: Culling (Hide things far away)
+            // Never cull ground plane or simple decorative meshes
+            if (!meshComp.isImportant && distToCamera > 180.0f) continue;
+
+            // Rule 2: Level of Detail (Simplify units far away)
+            size_t drawLimit = totalTris;
+            if (!isSimpleMesh && distToCamera > 50.0f) {
+                drawLimit = (std::min)(totalTris, (size_t)12);
             }
+            // ------------------------
 
             mat4x4 matTrans = Matrix_MakeTranslation(trans.Pos.x, trans.Pos.y, trans.Pos.z);
             mat4x4 matRot = Matrix_MakeRotationY(0.0f);
             mat4x4 matWorld = Matrix_MultiplyMatrix(matRot, matTrans);
 
-          
-
-            for (size_t i = 0; i < detailLimit; i++)
+            for (size_t i = 0; i < drawLimit; i++)
             {
                 auto& tri = meshComp.mesh.tris[i];
                 RenderTri rt;
@@ -75,24 +72,19 @@ public:
                 rt.t.p[1] = Matrix_MultiplyVector(matWorld, tri.p[1]);
                 rt.t.p[2] = Matrix_MultiplyVector(matWorld, tri.p[2]);
 
-                // Calculate Center
-                vec3d center = Vector_Div(Vector_Add(rt.t.p[0], Vector_Add(rt.t.p[1], rt.t.p[2])), 3.0f);
-
-                // Cull Logic: Is the triangle facing the camera?
-                vec3d camRay = Vector_Sub(center, cameraPos);
-
-                // Calculate Normal
                 vec3d line1 = Vector_Sub(rt.t.p[1], rt.t.p[0]);
                 vec3d line2 = Vector_Sub(rt.t.p[2], rt.t.p[0]);
                 rt.normal = Vector_Normalise(Vector_CrossProduct(line1, line2));
 
+                vec3d center = Vector_Div(Vector_Add(rt.t.p[0], Vector_Add(rt.t.p[1], rt.t.p[2])), 3.0f);
+                vec3d camRay = Vector_Sub(center, cameraPos);
+
+                // Backface Culling
                 if (Vector_DotProduct(rt.normal, camRay) < 0.0f)
                 {
-                    // Lighting
                     float dp = fabsf(Vector_DotProduct(rt.normal, lightDir));
                     float ambient = 0.3f;
                     rt.lightFactor = (std::max)(ambient, dp);
-
                     rt.t.r = tri.r; rt.t.g = tri.g; rt.t.b = tri.b;
                     rt.depth = Vector_Distance(center, cameraPos);
 
@@ -101,34 +93,29 @@ public:
             }
         }
 
-        // 3. SORT
+        // Sort Painter's Algorithm
         std::sort(m_trianglesCache.begin(), m_trianglesCache.end(),
             [](const RenderTri& a, const RenderTri& b) {
                 return a.depth > b.depth;
             });
 
-        // 4. PROJECT AND DRAW
+        // Rasterize
         for (auto& rt : m_trianglesCache)
         {
             triangle triViewed, triProjected;
 
-            // World -> View
             triViewed.p[0] = Matrix_MultiplyVector(matView, rt.t.p[0]);
             triViewed.p[1] = Matrix_MultiplyVector(matView, rt.t.p[1]);
             triViewed.p[2] = Matrix_MultiplyVector(matView, rt.t.p[2]);
 
-            // Clip Near Plane
-            if (triViewed.p[0].z < 0.1f || triViewed.p[1].z < 0.1f || triViewed.p[2].z < 0.1f)
-                continue;
+            // Near Plane Clip
+            if (triViewed.p[0].z < 0.1f || triViewed.p[1].z < 0.1f || triViewed.p[2].z < 0.1f) continue;
 
-            // View -> Projected
             for (int i = 0; i < 3; i++)
             {
                 triProjected.p[i] = Matrix_MultiplyVector(matProj, triViewed.p[i]);
                 triProjected.p[i].y *= 1.0f;
                 triProjected.p[i] = Vector_Div(triProjected.p[i], triProjected.p[i].w);
-
-                // Screen Scale
                 triProjected.p[i].x += 1.0f; triProjected.p[i].y += 1.0f;
                 triProjected.p[i].x *= 0.5f * (float)APP_VIRTUAL_WIDTH;
                 triProjected.p[i].y *= 0.5f * (float)APP_VIRTUAL_HEIGHT;

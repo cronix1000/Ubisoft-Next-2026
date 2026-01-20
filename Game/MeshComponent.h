@@ -3,4 +3,5 @@
 
 struct MeshComponent {
 	mesh mesh;
+	bool isImportant = false;
 };

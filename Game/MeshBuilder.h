@@ -142,14 +142,25 @@ namespace ShapeBuilder
     mesh CreateCubeScales(vec3d scale, float r, float g, float b, bool openTop = false) {
 
         mesh composite;
+
+
+
         AddMesh(composite, CreateCube(0.2f, 0.2f, 0.2f), { 0,0,0 }, scale);
+
         return composite;
+
     }
+
+
 
     mesh CreateHexagonScales(vec3d scale, float r, float g, float b, float height = 1.0f) {
 
         mesh composite;
+
+
+
         AddMesh(composite, CreateHexagon(r, g, b, height), { 0,0,0 }, scale);
+
         return composite;
 
     }
@@ -319,9 +330,12 @@ namespace ShapeBuilder
     mesh CreatePlane(float size, float r, float g, float b)
     {
         mesh m;
-        int tiles = (int)size;
-        if (tiles < 10) tiles = 10;
-        if (tiles > 100) tiles = 100;
+        
+        // OPTIMIZATION: Hardcap tiles to 20. 
+        // Old code: 100 tiles = 20,000 triangles (LAG)
+        // New code: 20 tiles = 800 triangles (FAST)
+        // The floor will still be a checkerboard, just with larger squares.
+        int tiles = 20; 
 
         float step = (size * 2.0f) / tiles;
         float start = -size;
@@ -336,7 +350,7 @@ namespace ShapeBuilder
                 float z1 = start + ((z + 1) * step);
 
                 // Checkerboard pattern tint
-                float tint = ((x + z) % 2 == 0) ? 1.0f : 0.9f;
+                float tint = ((x + z) % 2 == 0) ? 1.0f : 0.8f; // Increased contrast slightly
 
                 vec3d p1 = { x0, 0, z1 }; // Bottom Left
                 vec3d p2 = { x1, 0, z1 }; // Bottom Right

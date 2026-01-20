@@ -405,9 +405,14 @@ void RegisterSystems() {
 void SetupWorld() {
     // -- Ground --
     Entity ground = gCoordinator.CreateEntity();
-    mesh groundMesh = ShapeBuilder::CreatePlane(500.0f, 0.2f, 0.5f, 0.2f);
+    // Ground plane is 1400x1400 (from -700 to +700) - larger than playable area to prevent edge issues
+    mesh groundMesh = ShapeBuilder::CreatePlane(700.0f, 0.2f, 0.5f, 0.2f);
     gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} });
-    gCoordinator.AddComponent(ground, MeshComponent{ groundMesh });
+    
+    MeshComponent groundMeshComp;
+    groundMeshComp.mesh = groundMesh;
+    groundMeshComp.isImportant = true; 
+    gCoordinator.AddComponent(ground, groundMeshComp);
 
     // -- Gold Chunks (Resource System) --
     for (int i = 0; i < 20; i++) {
@@ -436,12 +441,12 @@ void SetupWorld() {
 
     // -- Units --
     // SpawnEnemySquad(50.0f, { -10, 0, 5 });
-    // SpawnEnemySquad(80.0f, { -10, 0, -50 });
+     SpawnEnemySquad(80.0f, { -10, 0, -50 });
     SpawnEnemySquad(60.0f, { 15, 0, -15 });
     SpawnEnemySquad(80.0f, { 40, 0, 20 });
-    SpawnEnemySquad(50.0f, { -35, 0, -30 });
-    SpawnEnemySquad(50.0f, { 50, 0, -40 });
-    SpawnEnemySquad(60.0f, { -50, 0, 40 });
+    SpawnEnemySquad(80.0f, { -35, 0, -30 });
+    SpawnEnemySquad(40.0f, { 50, 0, -40 });
+    SpawnEnemySquad(30.0f, { -50, 0, 40 });
 
     SpawnPlayerSquad(40, 30, { 0, 0, 0 });
 }
@@ -473,7 +478,7 @@ void SetupUI() {
 
 
     btnBuild = gCoordinator.CreateEntity();
-    gCoordinator.AddComponent(btnBuild, UIButton{ centerX - (cardWidth * 2.7f + cardSpacing), bottomY, cardWidth, cardHeight, "Build Factory\n20g", 0.2f, 0.2f, 0.8f
+    gCoordinator.AddComponent(btnBuild, UIButton{ centerX - (cardWidth * 2.8f + cardSpacing), bottomY, cardWidth + 5, cardHeight, "Factory 20g", 0.2f, 0.2f, 0.8f
         });
 
     playerGold = gCoordinator.CreateEntity();
@@ -543,6 +548,7 @@ void Init()
 
 	// INIT SYSTEMS
 	collisionSystem->Init();
+    render3D->Init();
 
     isMousePressed = false;
     isRightPressed = false;
@@ -556,7 +562,7 @@ void Update(const float deltaTime)
     accumulatedTime += deltaTime;
     frameCount++;
     
-    bool runSlowSystems = (frameCount % 3 == 0); // Run every 3rd frame (~20Hz at 60fps)
+    bool runSlowSystems = (frameCount % 5 == 0); // Run every 5th frame (~12Hz at 60fps) - better debug performance
     
     // --- 1. Input & Calculations ---
     float screenCenterX = (float)APP_VIRTUAL_WIDTH / 2.0f;
@@ -574,17 +580,17 @@ void Update(const float deltaTime)
     isRightPressed = isRightDown;
 
     // --- 2. System Updates ---
-    // With 450+ units, throttle expensive systems more aggressively
-    if (runSlowSystems) {
-        unitSystem->Update(deltaTime * 3.0f);
-        collisionSystem->Update(deltaTime * 3.0f);
-        squadSystem->Update(deltaTime * 3.0f);
-        animationSystem->Update(deltaTime * 3.0f);
-    }
-    
-    // Keep these running every frame for responsiveness
+    // Run movement/rendering systems every frame for smooth gameplay
+    unitSystem->Update(deltaTime);
+    animationSystem->Update(deltaTime);
     particleSystem->Update(deltaTime);
     projectileSystem->Update(deltaTime);
+    
+    // Throttle expensive AI/collision systems to reduce lag
+    if (runSlowSystems) {
+        collisionSystem->Update(deltaTime * 5.0f);
+        squadSystem->Update(deltaTime * 5.0f);
+    }
     // resourceSystem->Update(deltaTime); // Commented out in source
 
     auto& gold = gCoordinator.GetComponent<GoldComponent>(playerGold);
@@ -592,10 +598,10 @@ void Update(const float deltaTime)
 
     // Production Update (Gold Generation) - can be slower
     if (runSlowSystems) {
-        productionSystem->Update(deltaTime / 1000.0f * 3.0f, playerGold);
+        productionSystem->Update(deltaTime / 1000.0f * 5.0f, playerGold);
         
         static float passiveGoldTimer = 0.0f;
-        passiveGoldTimer += deltaTime * 3.0f;
+        passiveGoldTimer += deltaTime * 5.0f;
         if (passiveGoldTimer >= 2000.0f) {
             gold.gold += 1;
             // update label
@@ -726,11 +732,10 @@ void Update(const float deltaTime)
     if (App::IsKeyPressed(App::KEY_D)) vFocusPoint.x += speed;
 
 
-    float mapLimit = 500.0f;
-    if (vFocusPoint.z > mapLimit) vFocusPoint.z = mapLimit;
-    if (vFocusPoint.z < -mapLimit) vFocusPoint.z = -mapLimit;
-    if (vFocusPoint.x > mapLimit) vFocusPoint.x = mapLimit;
-    if (vFocusPoint.x < -mapLimit) vFocusPoint.x = -mapLimit;
+    if (vFocusPoint.z > MAP_LIMIT) vFocusPoint.z = MAP_LIMIT;
+    if (vFocusPoint.z < -MAP_LIMIT) vFocusPoint.z = -MAP_LIMIT;
+    if (vFocusPoint.x > MAP_LIMIT) vFocusPoint.x = MAP_LIMIT;
+    if (vFocusPoint.x < -MAP_LIMIT) vFocusPoint.x = -MAP_LIMIT;
     }
 
     // --- TUTORIAL LOGIC ---
