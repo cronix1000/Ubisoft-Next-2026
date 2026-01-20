@@ -84,8 +84,11 @@ bool gameOver = false;
 Entity timerLabel;
 Entity enemyCountLabel;
 
+// Converts screen coordinates to world coordinates using raycasting
+// Projects a ray from the camera through the mouse position and intersects it with the ground plane (y=0)
 vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
 {
+    // Convert screen coordinates to normalized device coordinates (-1 to 1)
     float ndc_x = mouseX;
     float ndc_y = mouseY;
 
@@ -114,8 +117,10 @@ vec3d GetIsoWorldCoordinates(float mouseX, float mouseY)
 
     vec3d rayDir = Vector_Normalise(Vector_Sub(rayEnd, rayStart));
 
+    // Prevent division by zero if ray is parallel to ground
     if (abs(rayDir.y) < 0.001f) return { 0,0,0 };
 
+    // Calculate intersection parameter t where ray meets ground plane (y=0)
     float t = (0.0f - rayStart.y) / rayDir.y;
     vec3d worldPos = Vector_Add(rayStart, Vector_Mul(rayDir, t));
     worldPos.y = 0.0f;
@@ -173,6 +178,7 @@ void SpawnEnemySquad(int count, vec3d position)
     gCoordinator.AddComponent(leader, TransformComponent{ position });
     gCoordinator.AddComponent(leader, SquadComponent{ 1, position, 0, 0, 4.0f });
 
+    // Unit composition: 60% melee, 30% ranged, 10% catapult for balanced enemy squads
     float meleeWeight = 0.6f;
     float rangedWeight = 0.3f;
     float scale = 0.1f;
@@ -180,9 +186,11 @@ void SpawnEnemySquad(int count, vec3d position)
     for (int i = 0; i < count; i++)
     {
         Entity grunt = gCoordinator.CreateEntity();
+        // Randomize spawn position within 1x1 area to prevent perfect overlap
         vec3d spawnPos = { position.x + (rand() % 10) / 10.0f, 0, position.z + (rand() % 10) / 10.0f };
 
         gCoordinator.AddComponent(grunt, TransformComponent{ spawnPos });
+        // Weighted random selection for unit type diversity
         float roll = static_cast <float>(rand()) / static_cast <float>(RAND_MAX);
         UnitComponent::UnitType unitType;
 
@@ -487,8 +495,10 @@ void SetupUI() {
 void SetupCamera() {
     float zoom = 20.0f;
     float aspectRatio = (float)APP_VIRTUAL_WIDTH / (float)APP_VIRTUAL_HEIGHT;
+    // Orthographic projection prevents perspective distortion for isometric view
     matProj = Engine3D::Matrix_MakeOrthographic(zoom * aspectRatio, zoom, -500.0f, 5000.0f);
 
+    // Camera angles: 45° yaw (0.785398 rad) and ~35° pitch (0.615472 rad) for isometric perspective
     fYaw = 0.785398f;
     fTheta = 0.615472f;
     vFocusPoint = { 0, 0, 0 };
@@ -525,8 +535,11 @@ void Update(const float deltaTime)
     accumulatedTime += deltaTime;
     frameCount++;
     
+    // Performance optimization: Run expensive AI/collision systems every 5th frame (~12Hz)
+    // Movement/animation systems run every frame for smooth visuals (60Hz)
     bool runSlowSystems = (frameCount % 5 == 0);
     
+    // Player squad leader follows screen center for camera-relative control
     float screenCenterX = (float)APP_VIRTUAL_WIDTH / 2.0f;
     float screenCenterY = (float)APP_VIRTUAL_HEIGHT / 2.0f;
     vec3d worldCenter = GetIsoWorldCoordinates(screenCenterX, screenCenterY);
@@ -546,6 +559,7 @@ void Update(const float deltaTime)
     particleSystem->Update(deltaTime);
     projectileSystem->Update(deltaTime);
     
+    // Multiply deltaTime by 5 to compensate for running 1/5th as often
     if (runSlowSystems) {
         collisionSystem->Update(deltaTime * 5.0f);
         squadSystem->Update(deltaTime * 5.0f);
@@ -555,8 +569,10 @@ void Update(const float deltaTime)
     auto& goldLabel = gCoordinator.GetComponent<UILabel>(playerGold);
 
     if (runSlowSystems) {
+        // Factories generate gold automatically when built near gold deposits
         productionSystem->Update(deltaTime / 1000.0f * 5.0f, playerGold);
         
+        // Passive income: +1 gold every 2 seconds as base resource generation
         static float passiveGoldTimer = 0.0f;
         passiveGoldTimer += deltaTime * 5.0f;
         if (passiveGoldTimer >= 2000.0f) {
@@ -604,6 +620,7 @@ void Update(const float deltaTime)
         trans.Pos.z = worldPos.z;
         trans.Pos.y = 0.0f;
 
+        // Factory must be placed within 2 units of an unoccupied gold deposit
         bool canBuild = false;
         Entity targetGoldChunk = -1;
 
@@ -642,6 +659,8 @@ void Update(const float deltaTime)
                 gCoordinator.AddComponent(newFactory, StatComponent{ 2000, 1000, 0, 0 });
                 gCoordinator.AddComponent(newFactory, ColliderComponent{ 1.0f });
 
+                // Bidirectional link: deposit->factory and factory->deposit
+                // Ensures deposit is freed when factory is destroyed
                 if (targetGoldChunk != -1) {
                     auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(targetGoldChunk);
                     deposit.occupied = true;
@@ -717,6 +736,7 @@ void Update(const float deltaTime)
         timerText.text = "Time: " + std::to_string(minutes) + ":" + 
                          (seconds < 10 ? "0" : "") + std::to_string(seconds);
         
+        // Timer color: Red < 60s, Orange < 120s, White otherwise for urgency indication
         if (totalSeconds < 60) {
             timerText.r = 1.0f; timerText.g = 0.3f; timerText.b = 0.3f;
         } else if (totalSeconds < 120) {
@@ -741,6 +761,7 @@ void Update(const float deltaTime)
         }
     }
     else if (!hasBoughtUnit) {
+        // Track squad size increase to detect unit purchase for tutorial progression
         int currentSquadSize = 0;
         for (auto const& entity : squadSystem->mEntities) {
             if (gCoordinator.HasComponent<SquadMemberComponent>(entity)) {
@@ -773,6 +794,8 @@ void Update(const float deltaTime)
         }
     }
     }
+    // Update player squad leader position to screen center for camera-following behavior
+    // Squad members automatically form around leader via SquadSystem
     if (worldCenter.x != 0.0f || worldCenter.z != 0.0f) {
         Entity playerLeader = playerUnit;
         if (playerLeader != -1) {
