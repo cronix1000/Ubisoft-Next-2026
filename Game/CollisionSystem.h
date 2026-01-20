@@ -37,10 +37,16 @@ struct KeyHasher {
 
 class CollisionSystem : public System {
     std::unordered_map<GridKey, std::vector<Entity>, KeyHasher> grid;
+    private:
+    std::vector<ColliderWrapper> colliders;
+
 public:
+    void Init() {
+        colliders.reserve(2000); // Pre-allocate for max expected units
+    }
     void Update(float dt)
     {
-        std::vector<ColliderWrapper> colliders;
+        colliders.clear();
         colliders.reserve(mEntities.size());
 
         // 1. CACHE STEP - also cache team IDs to avoid lookups later
@@ -124,6 +130,45 @@ public:
     }
 
 private:
+void SpawnExplosion(vec3d center, float r, float g, float b)
+{
+    for (int i = 0; i < 20; i++) 
+    {
+        Entity p = gCoordinator.CreateEntity();
+
+        // Jitter (Position offset)
+        float jitterX = (rand() % 10 - 5) / 20.0f; 
+        float jitterY = (rand() % 10 - 5) / 20.0f; 
+        float jitterZ = (rand() % 10 - 5) / 20.0f; 
+        
+        vec3d spawnPos = { center.x + jitterX, center.y + jitterY, center.z + jitterZ };
+        gCoordinator.AddComponent(p, TransformComponent{ spawnPos });
+        
+        // --- REDUCED VELOCITY ---
+        // X and Z: Range is now -3.0 to +3.0 (was -10 to +10)
+        float vx = (rand() % 60 - 30) / 10.0f; 
+        
+        // Y (Upward): Range is now +1.0 to +6.0 (was +2 to +22)
+        float vy = (rand() % 50) / 10.0f + 1.0f; 
+        
+        // Z: Range is now -3.0 to +3.0
+        float vz = (rand() % 60 - 30) / 10.0f;
+        // ------------------------
+
+        float scaleStart = (rand() % 10 + 5) / 100.0f; // Tiny size (0.05 to 0.15)
+
+        gCoordinator.AddComponent(p, ParticleComponent{ 
+            {vx, vy, vz}, 
+            0.8f, 1.0f,      // Lifetime
+            scaleStart, 0.0f,// Shrink
+            r, g, b 
+        });
+
+        gCoordinator.AddComponent(p, MeshComponent{ 
+            ShapeBuilder::CreateCubeScales({scaleStart, scaleStart, scaleStart}, 1.0f, r, g, b) 
+        });
+    }
+}
     bool CheckCollision(const ColliderWrapper& a, const ColliderWrapper& b, float radiusSum)
     {
         float dy = a.transform->Pos.y - b.transform->Pos.y;
@@ -193,6 +238,18 @@ private:
     {
         if (destroyedSet.count(e)) return;
 
+        // if (gCoordinator.HasComponent<MeshComponent>(e)) {
+        //     auto& meshComp = gCoordinator.GetComponent<MeshComponent>(e);
+        //     ShapeBuilder::TintMesh(meshComp.mesh, 1.0f, 0.0f, 0.0f); 
+        // }
+
+        // if (gCoordinator.HasComponent<UnitComponent>(e)) {
+        //     auto& unit = gCoordinator.GetComponent<UnitComponent>(e);
+        //     unit.flashTimer = 0.1f; 
+        // }
+        if(stats.teamID == 0 && gCoordinator.HasComponent<UnitComponent>(e))
+           App::PlayAudio("./data/hit_sound.mp3", false);  
+
         stats.health -= damageAmount;
         if (stats.health <= 0)
         {
@@ -203,7 +260,7 @@ private:
     void DestroyEntity(Entity e, std::set<Entity>& destroyedSet)
     {
         if (destroyedSet.count(e)) return;
-            if (gCoordinator.HasComponent<OccupyingDepositComponent>(e)) {
+        if (gCoordinator.HasComponent<OccupyingDepositComponent>(e)) {
                 auto& link = gCoordinator.GetComponent<OccupyingDepositComponent>(e);
                 
                 // Check if the gold chunk still exists (it should, but safety first)
@@ -211,7 +268,8 @@ private:
                 // but in this ECS, assuming the entity ID is valid is standard.
                 if (gCoordinator.HasComponent<GoldDepositComponent>(link.goldChunkEntity)) {
                     auto& deposit = gCoordinator.GetComponent<GoldDepositComponent>(link.goldChunkEntity);
-                    deposit.occupied = false; 
+                    deposit.occupied = false;
+                    deposit.linkedFactory = static_cast<Entity>(-1);
                     
                     // Optional: Visual Feedback (Tint it back to Gold to show it's active)
                     if (gCoordinator.HasComponent<MeshComponent>(link.goldChunkEntity)) {
@@ -222,9 +280,23 @@ private:
                         }
                     }
                 }
-            }
 
+                App::PlayAudio("./data/explosion.mp3",false);
+                // Spawn Explosion Particles at Entity Position
+                if (gCoordinator.HasComponent<TransformComponent>(e)) {
+                auto& trans = gCoordinator.GetComponent<TransformComponent>(e);
+                SpawnExplosion(trans.Pos, 1.0f, 0.5f, 0.0f);
+            }
+    
+        }
+        if(gCoordinator.HasComponent<UnitComponent>(e)) {
+            auto& trans = gCoordinator.GetComponent<TransformComponent>(e);
+            SpawnExplosion(trans.Pos, 1.0f, 0.5f, 0.0f);
+        }
         gCoordinator.DestroyEntity(e);
         destroyedSet.insert(e);
+    
+    
     }
 };
+

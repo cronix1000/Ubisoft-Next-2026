@@ -15,3 +15,4 @@ constexpr float MAP_LIMIT = 45.0f;
 #include "GoldComponent.h"
 #include "UIProgressBar.h"
 #include "OccupyingDepositComponent.h"
+#include "ParticleComponent.h"

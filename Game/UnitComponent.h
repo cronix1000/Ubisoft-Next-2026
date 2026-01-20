@@ -22,4 +22,6 @@ struct UnitComponent {
 
     bool isSelected = true;
     Entity targetEntity = static_cast<Entity>(-1);
+
+    float flashTimer;
 };
