@@ -24,10 +24,7 @@ public:
             auto& unit = gCoordinator.GetComponent<UnitComponent>(entity);
                 auto& faction = gCoordinator.GetComponent<FactionComponent>(entity);
 
-                // Tick Cooldown
                 if (unit.attackCooldown > 0) unit.attackCooldown -= dt;
-
-                // Check Range
                 
                 if (unit.targetEntity != -1)
                 {
@@ -35,11 +32,8 @@ public:
                     auto& targetTrans = gCoordinator.GetComponent<TransformComponent>(unit.targetEntity);
                     float dist = Engine3D::Vector_Distance(transform.Pos, targetTrans.Pos);
                   
-                    // If in range, STOP and FIRE
                     if (dist <= unit.attackRange)
                     {
-                        //unit.isMoving = false; // Override Squad command
-
                         if (unit.attackCooldown <= 0)
                         { 
                              switch(unit.type){
@@ -54,13 +48,11 @@ public:
                             unit.attackCooldown = 4000.0f;
                             break;
                     }
-                            unit.attackCooldown = 2000.0f; // 2 Seconds
+                            unit.attackCooldown = 2000.0f;
                         }
                     }
                 }
             
-
-            // --- MOVEMENT LOGIC ---
             if (unit.isMoving)
             {
                 vec3d diff = Engine3D::Vector_Sub(unit.targetPos, transform.Pos);
@@ -80,13 +72,11 @@ public:
                     transform.Pos.z += dir.z * moveStep;
                 }
             }
-            // --- IDLE ANIMATION ---
             else
             {
                 float seed = (float)entity * 1.3f;
                 float swayX = sinf(timeTracker * 2.0f + seed) * 0.1f;
                 float swayZ = cosf(timeTracker * 1.7f + seed * 3.0f) * 0.1f;
-                // Sway around current position
                 transform.Pos.x += swayX * 0.1f;
                 transform.Pos.z += swayZ * 0.1f;
             }

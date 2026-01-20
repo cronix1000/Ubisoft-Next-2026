@@ -9,11 +9,6 @@
 
 namespace ShapeBuilder
 {
-    // ==========================================
-    // CORE UTILITIES
-    // ==========================================
-
-    // Helper: Rotate a single point around X axis
     vec3d RotatePointX(vec3d p, float angle) {
         vec3d n = p;
         n.y = p.y * cos(angle) - p.z * sin(angle);
@@ -21,7 +16,6 @@ namespace ShapeBuilder
         return n;
     }
 
-    // Helper: Rotate a single point around Y axis
     vec3d RotatePointY(vec3d p, float angle) {
         vec3d n = p;
         n.x = p.x * cos(angle) + p.z * sin(angle);
@@ -29,7 +23,6 @@ namespace ShapeBuilder
         return n;
     }
 
-    // Helper: Rotate a single point around Z axis
     vec3d RotatePointZ(vec3d p, float angle) {
         vec3d n = p;
         n.x = p.x * cos(angle) - p.y * sin(angle);
@@ -37,7 +30,6 @@ namespace ShapeBuilder
         return n;
     }
 
-    // Rotates an entire mesh in place
     void RotateMesh(mesh& m, float xAngle, float yAngle, float zAngle) {
         for (auto& tri : m.tris) {
             for (int i = 0; i < 3; i++) {
@@ -75,10 +67,6 @@ namespace ShapeBuilder
         m.tris.push_back({ bl, br, tr, r, g, b });
         m.tris.push_back({ bl, tr, tl, r, g, b });
     }
-
-    // ==========================================
-    // PRIMITIVES
-    // ==========================================
 
     mesh CreateCube(float r, float g, float b, bool openTop = false)
     {
@@ -154,37 +142,19 @@ namespace ShapeBuilder
 
     }
 
-    // ==========================================
-    // DETAILED UNITS
-    // ==========================================
-
     enum UnitType { MELEE, RANGED };
 
-    // A generic helper to build a humanoid "Lego-style" unit
-    // LOD-AWARE: Triangles are added in order of importance for Level of Detail rendering
-    // First 12 tris = Core body (LOD 2), Next 12 = Limbs (LOD 1), Rest = Details (LOD 0)
+    // Triangles ordered by importance: Core body -> Head -> Limbs -> Details
     mesh CreateDetailedUnit(UnitType type, float r, float g, float b) {
         mesh composite;
 
         float skinR = 0.9f, skinG = 0.7f, skinB = 0.6f;
         float darkR = 0.2f, darkG = 0.2f, darkB = 0.2f;
-
-        // === LOD LEVEL 2: CORE SILHOUETTE (First 12 triangles - always visible) ===
-        // Most important - the main body mass that defines the character silhouette
         
-        // 2. Torso (Main Armor Color) - 12 triangles
         AddMesh(composite, CreateCube(r, g, b), { 0.1f, 0.4f, 0.15f }, { 0.8f, 0.7f, 0.4f });
 
-        // === LOD LEVEL 1: MAJOR BODY PARTS (Next 12-24 triangles - visible at medium distance) ===
-        // Secondary importance - limbs that define posture and movement
-        
-        // 3. Head (Skin color) - 12 triangles
         AddMesh(composite, CreateCube(skinR, skinG, skinB), { 0.3f, 1.1f, 0.25f }, { 0.4f, 0.4f, 0.4f });
-
-        // === LOD LEVEL 0: DETAILS (Remaining triangles - only visible up close) ===
-        // Fine details that enhance appearance but aren't critical for recognition
         
-        // 1. Legs (Two small blocks) - 24 triangles
         AddMesh(composite, CreateCube(darkR, darkG, darkB), { 0.1f, 0.0f, 0.2f }, { 0.25f, 0.4f, 0.25f }); // Left
         AddMesh(composite, CreateCube(darkR, darkG, darkB), { 0.65f, 0.0f, 0.2f }, { 0.25f, 0.4f, 0.25f }); // Right
 
@@ -250,25 +220,18 @@ namespace ShapeBuilder
         return CreateDetailedUnit(RANGED, 0.8f, 0.2f, 0.2f);
     }
 
-    // ==========================================
-    // SIEGE WEAPONS
-    // ==========================================
-
     mesh CreateCatapult()
     {
         mesh composite;
         float woodR = 0.5f, woodG = 0.35f, woodB = 0.1f;
         float wheelR = 0.3f, wheelG = 0.3f, wheelB = 0.3f;
 
-        // 1. Frame Base (Two long beams along Z)
-        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.1f, 0.2f, 0.0f }, { 0.1f, 0.1f, 1.0f }); // Left Rail
-        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.8f, 0.2f, 0.0f }, { 0.1f, 0.1f, 1.0f }); // Right Rail
+        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.1f, 0.2f, 0.0f }, { 0.1f, 0.1f, 1.0f });
+        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.8f, 0.2f, 0.0f }, { 0.1f, 0.1f, 1.0f });
 
-        // Cross beams
-        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.1f, 0.2f, 0.1f }, { 0.8f, 0.1f, 0.1f }); // Front
-        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.1f, 0.2f, 0.8f }, { 0.8f, 0.1f, 0.1f }); // Back
+        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.1f, 0.2f, 0.1f }, { 0.8f, 0.1f, 0.1f });
+        AddMesh(composite, CreateCube(woodR, woodG, woodB), { 0.1f, 0.2f, 0.8f }, { 0.8f, 0.1f, 0.1f });
 
-        // 2. Wheels (4 Hexagons rotated 90 degrees)
         mesh wheel = CreateHexagon(wheelR, wheelG, wheelB, 0.2f);
         RotateMesh(wheel, PI / 2.0f, 0, 0); // Rotate to stand up (around X)
         RotateMesh(wheel, 0, PI / 2.0f, 0); // Rotate to face forward (around Y)
@@ -302,16 +265,10 @@ namespace ShapeBuilder
         return composite;
     }
 
-    // ==========================================
-    // ENVIRONMENT
-    // ==========================================
-
     mesh CreateTree() {
         mesh composite;
-        // Trunk: Brown
         AddMesh(composite, CreateCube(0.55f, 0.27f, 0.07f), { 0.35f, 0.0f, 0.35f }, { 0.3f, 0.4f, 0.3f });
 
-        // Leaves: 3 Layers of Pyramids
         AddMesh(composite, CreatePyramid(0.1f, 0.6f, 0.1f), { 0.1f, 0.3f, 0.1f }, { 0.8f, 0.6f, 0.8f });
         AddMesh(composite, CreatePyramid(0.15f, 0.7f, 0.15f), { 0.15f, 0.6f, 0.15f }, { 0.7f, 0.6f, 0.7f });
         AddMesh(composite, CreatePyramid(0.2f, 0.8f, 0.2f), { 0.2f, 0.9f, 0.2f }, { 0.6f, 0.6f, 0.6f });
@@ -320,10 +277,8 @@ namespace ShapeBuilder
 
     mesh CreateFactoryUnit() {
         mesh composite;
-        // Build centered around origin for proper mouse cursor alignment
         AddMesh(composite, CreateCube(0.5f, 0.5f, 0.5f, true), { -0.5f, 0.0f, -0.5f }, { 1,1,1 });
         AddMesh(composite, CreatePyramid(0.6f, 0.6f, 0.6f), { -0.5f, 1.0f, -0.5f }, { 1.0f, 0.5f, 1.0f });
-        // Chimney
         AddMesh(composite, CreateCube(0.3f, 0.3f, 0.3f), { 0.1f, 0.5f, -0.4f }, { 0.2f, 1.0f, 0.2f });
         return composite;
     }

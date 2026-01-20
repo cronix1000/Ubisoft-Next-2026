@@ -13,8 +13,6 @@ public:
 		mSystemManager = std::make_unique<SystemManager>();
 	}
 
-
-	// Entity methods
 	Entity CreateEntity()
 	{
 		return mEntityManager->CreateEntity();
@@ -33,8 +31,6 @@ public:
 		return mEntityManager->GetLivingEntities();
 	}
 
-
-	// Component methods
 	template<typename T>
 	void RegisterComponent()
 	{
@@ -86,7 +82,6 @@ public:
 		return signature.test(type);
 	}
 
-	// System methods
 	template<typename T>
 	std::shared_ptr<T> RegisterSystem()
 	{

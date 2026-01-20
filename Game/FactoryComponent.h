@@ -2,6 +2,6 @@
 
 struct FactoryComponent {
     float productionTimer = 0.0f;
-    float productionInterval = 1.0f; // Produce gold every 1 second
+    float productionInterval = 1.0f;
     int goldPerTick = 10;
 };

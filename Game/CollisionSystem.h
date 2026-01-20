@@ -42,17 +42,15 @@ class CollisionSystem : public System {
 
 public:
     void Init() {
-        colliders.reserve(2000); // Pre-allocate for max expected units
+        colliders.reserve(2000);
     }
     void Update(float dt)
     {
         colliders.clear();
         colliders.reserve(mEntities.size());
 
-        // 1. CACHE STEP - also cache team IDs to avoid lookups later
         for (auto const& entity : mEntities)
         {
-            // Basic Requirements
             if (!gCoordinator.HasComponent<TransformComponent>(entity) ||
                 !gCoordinator.HasComponent<ColliderComponent>(entity) ||
                 !gCoordinator.HasComponent<StatComponent>(entity))
@@ -65,12 +63,9 @@ public:
             cw.transform = &gCoordinator.GetComponent<TransformComponent>(entity);
             cw.collider = &gCoordinator.GetComponent<ColliderComponent>(entity);
             cw.stats = &gCoordinator.GetComponent<StatComponent>(entity);
-           
 
-            // Unit Component (For Cooldowns)
             if (gCoordinator.HasComponent<UnitComponent>(entity)) {
                 cw.unit = &gCoordinator.GetComponent<UnitComponent>(entity);
-                // UPDATE TIMER HERE:
                 if (cw.unit->actionTimer > 0.0f) {
                     cw.unit->actionTimer -= dt;
                 }
@@ -78,7 +73,6 @@ public:
                 cw.unit = nullptr;
             }
 
-            // Projectile Component (For one-shot logic)
             if (gCoordinator.HasComponent<ProjectileComponent>(entity)) {
                 cw.proj = &gCoordinator.GetComponent<ProjectileComponent>(entity);
             } else {
@@ -88,10 +82,8 @@ public:
             colliders.push_back(cw);
         }
 
-        // Early exit if too few entities
         if (colliders.size() < 2) return;
         
-        // 2. SORT STEP (Sweep and Prune X-Axis)
         std::sort(colliders.begin(), colliders.end(), 
             [](const ColliderWrapper& a, const ColliderWrapper& b) {
                 return a.transform->Pos.x < b.transform->Pos.x;
@@ -99,7 +91,6 @@ public:
 
         std::set<Entity> destroyedThisFrame;
 
-        // 3. COLLISION LOOP - with better early exits
         for (size_t i = 0; i < colliders.size(); ++i)
         {
             if (destroyedThisFrame.count(colliders[i].entity)) continue;
@@ -111,13 +102,11 @@ public:
             {
                 if (destroyedThisFrame.count(colliders[j].entity)) continue;
 
-                // X-Axis Early Exit
                 float xDiff = colliders[j].transform->Pos.x - iX;
                 float radiusSum = iRadius + colliders[j].collider->radius;
                 
-                if (xDiff > radiusSum) break; 
+                if (xDiff > radiusSum) break;
                 
-                // Early team check - skip if same team
                 if (colliders[i].stats->teamID == colliders[j].stats->teamID) continue;
 
                 if (CheckCollision(colliders[i], colliders[j], radiusSum))
@@ -136,7 +125,6 @@ void SpawnExplosion(vec3d center, float r, float g, float b)
     {
         Entity p = gCoordinator.CreateEntity();
 
-        // Jitter (Position offset)
         float jitterX = (rand() % 10 - 5) / 20.0f; 
         float jitterY = (rand() % 10 - 5) / 20.0f; 
         float jitterZ = (rand() % 10 - 5) / 20.0f; 
@@ -144,23 +132,16 @@ void SpawnExplosion(vec3d center, float r, float g, float b)
         vec3d spawnPos = { center.x + jitterX, center.y + jitterY, center.z + jitterZ };
         gCoordinator.AddComponent(p, TransformComponent{ spawnPos });
         
-        // --- REDUCED VELOCITY ---
-        // X and Z: Range is now -3.0 to +3.0 (was -10 to +10)
-        float vx = (rand() % 60 - 30) / 10.0f; 
-        
-        // Y (Upward): Range is now +1.0 to +6.0 (was +2 to +22)
-        float vy = (rand() % 50) / 10.0f + 1.0f; 
-        
-        // Z: Range is now -3.0 to +3.0
+        float vx = (rand() % 60 - 30) / 10.0f;
+        float vy = (rand() % 50) / 10.0f + 1.0f;
         float vz = (rand() % 60 - 30) / 10.0f;
-        // ------------------------
 
-        float scaleStart = (rand() % 10 + 5) / 100.0f; // Tiny size (0.05 to 0.15)
+        float scaleStart = (rand() % 10 + 5) / 100.0f;
 
         gCoordinator.AddComponent(p, ParticleComponent{ 
             {vx, vy, vz}, 
-            0.8f, 1.0f,      // Lifetime
-            scaleStart, 0.0f,// Shrink
+            0.8f, 1.0f,
+            scaleStart, 0.0f,
             r, g, b 
         });
 
@@ -173,9 +154,9 @@ void SpawnExplosion(vec3d center, float r, float g, float b)
     {
         float dy = a.transform->Pos.y - b.transform->Pos.y;
         float dz = a.transform->Pos.z - b.transform->Pos.z;
-        float dx = a.transform->Pos.x - b.transform->Pos.x; // Recalculate full delta
+        float dx = a.transform->Pos.x - b.transform->Pos.x;
 
-        if (abs(dz) > radiusSum) return false; // Quick Z Check
+        if (abs(dz) > radiusSum) return false;
 
         float distSq = dx * dx + dy * dy + dz * dz;
         return distSq < (radiusSum * radiusSum);
