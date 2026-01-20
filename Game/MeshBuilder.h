@@ -142,25 +142,14 @@ namespace ShapeBuilder
     mesh CreateCubeScales(vec3d scale, float r, float g, float b, bool openTop = false) {
 
         mesh composite;
-
-
-
         AddMesh(composite, CreateCube(0.2f, 0.2f, 0.2f), { 0,0,0 }, scale);
-
         return composite;
-
     }
-
-
 
     mesh CreateHexagonScales(vec3d scale, float r, float g, float b, float height = 1.0f) {
 
         mesh composite;
-
-
-
         AddMesh(composite, CreateHexagon(r, g, b, height), { 0,0,0 }, scale);
-
         return composite;
 
     }
@@ -172,23 +161,34 @@ namespace ShapeBuilder
     enum UnitType { MELEE, RANGED };
 
     // A generic helper to build a humanoid "Lego-style" unit
+    // LOD-AWARE: Triangles are added in order of importance for Level of Detail rendering
+    // First 12 tris = Core body (LOD 2), Next 12 = Limbs (LOD 1), Rest = Details (LOD 0)
     mesh CreateDetailedUnit(UnitType type, float r, float g, float b) {
         mesh composite;
 
         float skinR = 0.9f, skinG = 0.7f, skinB = 0.6f;
         float darkR = 0.2f, darkG = 0.2f, darkB = 0.2f;
 
-        // 1. Legs (Two small blocks)
+        // === LOD LEVEL 2: CORE SILHOUETTE (First 12 triangles - always visible) ===
+        // Most important - the main body mass that defines the character silhouette
+        
+        // 2. Torso (Main Armor Color) - 12 triangles
+        AddMesh(composite, CreateCube(r, g, b), { 0.1f, 0.4f, 0.15f }, { 0.8f, 0.7f, 0.4f });
+
+        // === LOD LEVEL 1: MAJOR BODY PARTS (Next 12-24 triangles - visible at medium distance) ===
+        // Secondary importance - limbs that define posture and movement
+        
+        // 3. Head (Skin color) - 12 triangles
+        AddMesh(composite, CreateCube(skinR, skinG, skinB), { 0.3f, 1.1f, 0.25f }, { 0.4f, 0.4f, 0.4f });
+
+        // === LOD LEVEL 0: DETAILS (Remaining triangles - only visible up close) ===
+        // Fine details that enhance appearance but aren't critical for recognition
+        
+        // 1. Legs (Two small blocks) - 24 triangles
         AddMesh(composite, CreateCube(darkR, darkG, darkB), { 0.1f, 0.0f, 0.2f }, { 0.25f, 0.4f, 0.25f }); // Left
         AddMesh(composite, CreateCube(darkR, darkG, darkB), { 0.65f, 0.0f, 0.2f }, { 0.25f, 0.4f, 0.25f }); // Right
 
-        // 2. Torso (Main Armor Color)
-        AddMesh(composite, CreateCube(r, g, b), { 0.1f, 0.4f, 0.15f }, { 0.8f, 0.7f, 0.4f });
-
-        // 3. Head (Skin color)
-        AddMesh(composite, CreateCube(skinR, skinG, skinB), { 0.3f, 1.1f, 0.25f }, { 0.4f, 0.4f, 0.4f });
-
-        // 4. Arms
+        // 4. Arms - 24 triangles
         AddMesh(composite, CreateCube(r, g, b), { -0.15f, 0.7f, 0.2f }, { 0.25f, 0.6f, 0.25f }); // Left Arm
         AddMesh(composite, CreateCube(r, g, b), { 0.9f, 0.7f, 0.2f }, { 0.25f, 0.6f, 0.25f });  // Right Arm
 
@@ -330,12 +330,9 @@ namespace ShapeBuilder
     mesh CreatePlane(float size, float r, float g, float b)
     {
         mesh m;
-        
-        // OPTIMIZATION: Hardcap tiles to 20. 
-        // Old code: 100 tiles = 20,000 triangles (LAG)
-        // New code: 20 tiles = 800 triangles (FAST)
-        // The floor will still be a checkerboard, just with larger squares.
-        int tiles = 20; 
+        int tiles = (int)size;
+        if (tiles < 10) tiles = 10;
+        if (tiles > 100) tiles = 100;
 
         float step = (size * 2.0f) / tiles;
         float start = -size;
@@ -350,7 +347,7 @@ namespace ShapeBuilder
                 float z1 = start + ((z + 1) * step);
 
                 // Checkerboard pattern tint
-                float tint = ((x + z) % 2 == 0) ? 1.0f : 0.8f; // Increased contrast slightly
+                float tint = ((x + z) % 2 == 0) ? 1.0f : 0.9f;
 
                 vec3d p1 = { x0, 0, z1 }; // Bottom Left
                 vec3d p2 = { x1, 0, z1 }; // Bottom Right

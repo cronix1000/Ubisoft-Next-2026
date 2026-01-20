@@ -1,5 +1,5 @@
 #pragma once
-constexpr float MAP_LIMIT = 30.0f;
+constexpr float MAP_LIMIT = 45.0f;
 #include "PhysicsComponent.h"
 #include "TransformComponent.h"
 #include "MeshComponent.h"

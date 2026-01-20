@@ -406,7 +406,7 @@ void SetupWorld() {
     // -- Ground --
     Entity ground = gCoordinator.CreateEntity();
     // Ground plane is 1400x1400 (from -700 to +700) - larger than playable area to prevent edge issues
-    mesh groundMesh = ShapeBuilder::CreatePlane(700.0f, 0.2f, 0.5f, 0.2f);
+    mesh groundMesh = ShapeBuilder::CreatePlane(200.0f, 0.2f, 0.5f, 0.2f);
     gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} });
     
     MeshComponent groundMeshComp;
