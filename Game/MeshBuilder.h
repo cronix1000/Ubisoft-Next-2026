@@ -320,10 +320,11 @@ namespace ShapeBuilder
 
     mesh CreateFactoryUnit() {
         mesh composite;
-        AddMesh(composite, CreateCube(0.5f, 0.5f, 0.5f, true), { 0,0,0 }, { 1,1,1 });
-        AddMesh(composite, CreatePyramid(0.6f, 0.6f, 0.6f), { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.5f, 1.0f });
+        // Build centered around origin for proper mouse cursor alignment
+        AddMesh(composite, CreateCube(0.5f, 0.5f, 0.5f, true), { -0.5f, 0.0f, -0.5f }, { 1,1,1 });
+        AddMesh(composite, CreatePyramid(0.6f, 0.6f, 0.6f), { -0.5f, 1.0f, -0.5f }, { 1.0f, 0.5f, 1.0f });
         // Chimney
-        AddMesh(composite, CreateCube(0.3f, 0.3f, 0.3f), { 0.6f, 0.5f, 0.1f }, { 0.2f, 1.0f, 0.2f });
+        AddMesh(composite, CreateCube(0.3f, 0.3f, 0.3f), { 0.1f, 0.5f, -0.4f }, { 0.2f, 1.0f, 0.2f });
         return composite;
     }
 

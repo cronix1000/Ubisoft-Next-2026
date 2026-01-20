@@ -183,16 +183,28 @@ void SpawnExplosion(vec3d center, float r, float g, float b)
 
     void ResolveCollision(ColliderWrapper& a, ColliderWrapper& b, std::set<Entity>& destroyedSet)
     {
-        // 1. Projectile Logic (One-shot)
+        // 1. Projectile Logic (One-shot or Splash)
         // If A is a projectile, it hits B, deals damage, and dies.
         if (a.proj) {
-            ApplyDamage(b.entity, *b.stats, a.stats->damage, destroyedSet);
+            // Check for splash damage (AoE)
+            if (a.proj->splashRadius > 0.0f) {
+                ApplySplashDamage(*a.transform, a.stats->damage, a.proj->ownerTeamId, a.proj->splashRadius, destroyedSet);
+            } else {
+                // Single target damage
+                ApplyDamage(b.entity, *b.stats, a.stats->damage, destroyedSet);
+            }
             DestroyEntity(a.entity, destroyedSet);
             return; // A is dead, stop interaction
         }
         // If B is a projectile, it hits A, deals damage, and dies.
         if (b.proj) {
-            ApplyDamage(a.entity, *a.stats, b.stats->damage, destroyedSet);
+            // Check for splash damage (AoE)
+            if (b.proj->splashRadius > 0.0f) {
+                ApplySplashDamage(*b.transform, b.stats->damage, b.proj->ownerTeamId, b.proj->splashRadius, destroyedSet);
+            } else {
+                // Single target damage
+                ApplyDamage(a.entity, *a.stats, b.stats->damage, destroyedSet);
+            }
             DestroyEntity(b.entity, destroyedSet);
             return; // B is dead, stop interaction
         }
@@ -247,14 +259,41 @@ void SpawnExplosion(vec3d center, float r, float g, float b)
         //     auto& unit = gCoordinator.GetComponent<UnitComponent>(e);
         //     unit.flashTimer = 0.1f; 
         // }
-        if(stats.teamID == 0 && gCoordinator.HasComponent<UnitComponent>(e))
-           App::PlayAudio("./data/hit_sound.mp3", false);  
 
+    
         stats.health -= damageAmount;
         if (stats.health <= 0)
         {
             DestroyEntity(e, destroyedSet);
         }
+    }
+
+    void ApplySplashDamage(TransformComponent& impactPos, int damage, int ownerTeam, float radius, std::set<Entity>& destroyedSet)
+    {
+        // Deal damage to all enemies within splash radius
+        for (auto const& entity : mEntities)
+        {
+            if (destroyedSet.count(entity)) continue;
+            if (!gCoordinator.HasComponent<StatComponent>(entity)) continue;
+            if (!gCoordinator.HasComponent<TransformComponent>(entity)) continue;
+            if (!gCoordinator.HasComponent<FactionComponent>(entity)) continue;
+            auto& stats = gCoordinator.GetComponent<StatComponent>(entity);
+            auto& trans = gCoordinator.GetComponent<TransformComponent>(entity);
+            auto& faction = gCoordinator.GetComponent<FactionComponent>(entity);
+
+            // Don't damage same team
+            if (faction.teamId == ownerTeam) continue;
+
+            // Check if within splash radius
+            float dist = Engine3D::Vector_Distance(impactPos.Pos, trans.Pos);
+            if (dist <= radius) {
+                // Apply full damage at center, 50% at edge (linear falloff)
+                float damageMultiplier = 1.0f - (dist / radius) * 0.5f;
+                int actualDamage = (int)(damage * damageMultiplier);
+                ApplyDamage(entity, stats, actualDamage, destroyedSet);
+            }
+        }
+    
     }
 
     void DestroyEntity(Entity e, std::set<Entity>& destroyedSet)
@@ -289,10 +328,10 @@ void SpawnExplosion(vec3d center, float r, float g, float b)
             }
     
         }
-        if(gCoordinator.HasComponent<UnitComponent>(e)) {
-            auto& trans = gCoordinator.GetComponent<TransformComponent>(e);
-            SpawnExplosion(trans.Pos, 1.0f, 0.5f, 0.0f);
-        }
+        //if(gCoordinator.HasComponent<UnitComponent>(e)) {
+        //    auto& trans = gCoordinator.GetComponent<TransformComponent>(e);
+        //    SpawnExplosion(trans.Pos, 1.0f, 0.5f, 0.0f);
+        //}
         gCoordinator.DestroyEntity(e);
         destroyedSet.insert(e);
     

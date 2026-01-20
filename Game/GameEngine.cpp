@@ -195,9 +195,9 @@ void SpawnEnemySquad(int count, vec3d position)
     gCoordinator.AddComponent(leader, TransformComponent{ position });
     gCoordinator.AddComponent(leader, SquadComponent{ 1, position, 0, 0, 4.0f });
 
-    float meleeWeight = 0.7f;
-    float rangedWeight = 0.2f;
-    float scale = 0.3f;
+    float meleeWeight = 0.6f;
+    float rangedWeight = 0.3f;
+    float scale = 0.1f;
 
     for (int i = 0; i < count; i++)
     {
@@ -245,15 +245,15 @@ void SpawnPlayerUnit(vec3d position, UnitComponent::UnitType type, float scale =
 
     switch (type) {
     case UnitComponent::UnitType::meleeGrunt:
-        gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 15, 0 });
+        gCoordinator.AddComponent(grunt, StatComponent{ 150, 150, 25, 0 }); // Buffed: +50 HP, +10 damage
         scale = 0.3f;
         break;
     case UnitComponent::UnitType::Ranged:
-        gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 0 });
+        gCoordinator.AddComponent(grunt, StatComponent{ 120, 120, 0, 0 }); // Buffed: +20 HP
         scale = 0.5f;
         break;
     case UnitComponent::UnitType::Catapult:
-        gCoordinator.AddComponent(grunt, StatComponent{ 100, 100, 0, 0 });
+        gCoordinator.AddComponent(grunt, StatComponent{ 200, 200, 0, 0 }); // Buffed: +100 HP (siege unit)
         scale = 0.8f;
         break;
     }
@@ -406,7 +406,7 @@ void SetupWorld() {
     // -- Ground --
     Entity ground = gCoordinator.CreateEntity();
     // Ground plane is 1400x1400 (from -700 to +700) - larger than playable area to prevent edge issues
-    mesh groundMesh = ShapeBuilder::CreatePlane(200.0f, 0.2f, 0.5f, 0.2f);
+    mesh groundMesh = ShapeBuilder::CreatePlane(100.0f, 0.2f, 0.5f, 0.2f);
     gCoordinator.AddComponent(ground, TransformComponent{ {0, -0.1f, 0} });
     
     MeshComponent groundMeshComp;
@@ -439,16 +439,21 @@ void SetupWorld() {
         gCoordinator.AddComponent(tree, ColliderComponent{ 0.5f });
     }
 
-    // -- Units --
-    // SpawnEnemySquad(50.0f, { -10, 0, 5 });
-     SpawnEnemySquad(80.0f, { -10, 0, -50 });
-    SpawnEnemySquad(60.0f, { 15, 0, -15 });
-    SpawnEnemySquad(80.0f, { 40, 0, 20 });
-    SpawnEnemySquad(80.0f, { -35, 0, -30 });
-    SpawnEnemySquad(40.0f, { 50, 0, -40 });
-    SpawnEnemySquad(30.0f, { -50, 0, 40 });
+    // -- Units -- (Increased enemy count for epic battles)
+    SpawnEnemySquad(50.0f, { -10, 0, -50 });
+    SpawnEnemySquad(40.0f, { 15, 0, -15 });
+    SpawnEnemySquad(50.0f, { 40, 0, 20 });
+    SpawnEnemySquad(45.0f, { -35, 0, -30 });
+    SpawnEnemySquad(50.0f, { -50, 0, -30 });
+    SpawnEnemySquad(35.0f, { 50, 0, -40 });
+    SpawnEnemySquad(40.0f, { -50, 0, 40 });
+    SpawnEnemySquad(45.0f, { -20, 0, 50 });
+    SpawnEnemySquad(40.0f, { 30, 0, -50 });
+    SpawnEnemySquad(35.0f, { -40, 0, -50 });
+    SpawnEnemySquad(30.0f, { 60, 0, 10 });
+    SpawnEnemySquad(30.0f, { -60, 0, -10 });
 
-    SpawnPlayerSquad(40, 30, { 0, 0, 0 });
+    SpawnPlayerSquad(50, 40, { 0, 0, 0 }); // Buffed: 90 starting units vs ~470 enemies
 }
 
 void SetupUI() {
@@ -694,7 +699,7 @@ void Update(const float deltaTime)
                 gCoordinator.AddComponent(newFactory, MeshComponent{ ShapeBuilder::CreateFactoryUnit() });
                 gCoordinator.AddComponent(newFactory, FactoryComponent{});
                 gCoordinator.AddComponent(newFactory, FactionComponent{ 0 });
-                gCoordinator.AddComponent(newFactory, StatComponent{ 1000, 1000, 0, 0 });
+                gCoordinator.AddComponent(newFactory, StatComponent{ 2000, 1000, 0, 0 });
                 gCoordinator.AddComponent(newFactory, ColliderComponent{ 1.0f });
      /*           gCoordinator.AddComponent(newFactory, UIProgressBar{
                     worldPos.x, worldPos.z, 10, 5, 0.0f, 1.0f, 0.0f, 0
@@ -828,6 +833,8 @@ void Update(const float deltaTime)
             initialSquadSize = currentSquadSize;
         } else if (currentSquadSize > initialSquadSize) {
             hasBoughtUnit = true;
+            note.x = 30,
+                note.y = 50,
             note.text = "Great! Press Factory Button and click near gold to build a factory | Press Right Click to cancel";
         }
     }
@@ -835,6 +842,7 @@ void Update(const float deltaTime)
     else if (!hasPlacedFactory) {
         if (productionSystem->mEntities.size() > 0) {
             hasPlacedFactory = true;
+            note.x = APP_VIRTUAL_WIDTH / 2 - 200,
             note.text = "Perfect! Kill all enemies to win!";
         }
     }

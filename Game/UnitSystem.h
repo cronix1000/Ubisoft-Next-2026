@@ -125,10 +125,17 @@ private:
         Entity rock = gCoordinator.CreateEntity();
         gCoordinator.AddComponent(rock, TransformComponent{ startPos });
         gCoordinator.AddComponent(rock, MeshComponent{ ShapeBuilder::CreateHexagonScales({0.4, 0.4, 0.4},0.2f, 0.2f, 0.2f, 0.2f) });
-        gCoordinator.AddComponent(rock, ColliderComponent{ 0.4f, true, false });
-        gCoordinator.AddComponent(rock, ProjectileComponent{ velocity, 25, ownerTeam, 3.0f });
+        gCoordinator.AddComponent(rock, ColliderComponent{ 0.5f, true, false }); // Larger collider = easier to hit
+        
+        ProjectileComponent rockProj;
+        rockProj.velocity = velocity;
+        rockProj.damage = 20;
+        rockProj.ownerTeamId = ownerTeam;
+        rockProj.lifetime = 1.8f;
+        rockProj.splashRadius = 2.0f; // AoE damage within 4 units of impact!
+        gCoordinator.AddComponent(rock, rockProj);
+        
         gCoordinator.AddComponent(rock, ArcAnimComponent{ startPos, targetTrans.Pos, 5.0f, 1.5f, 0.0f });
-        //gCoordinator.AddComponent(rock, FactionComponent{ ownerTeam });
         gCoordinator.AddComponent(rock, StatComponent{1 , 1, 50, ownerTeam});
     }
 };
